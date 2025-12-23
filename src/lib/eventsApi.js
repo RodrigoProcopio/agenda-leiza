@@ -16,15 +16,17 @@ export async function fetchEvents() {
 
   if (error) throw error;
 
-  // map pro formato do seu app
   return data.map((r) => ({
     id: r.id,
     type: r.type,
     title: r.title,
     location: r.location,
     notes: r.notes,
-    startISO: new Date(r.start_iso).toISOString(),
-    endISO: new Date(r.end_iso).toISOString(),
+
+    // ✅ NÃO converta para toISOString()
+    startISO: r.start_iso,
+    endISO: r.end_iso,
+
     surgery: r.surgery,
     recurrenceId: r.recurrence_id,
   }));

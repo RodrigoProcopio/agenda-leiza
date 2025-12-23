@@ -38,3 +38,23 @@ export function isSameDay(aLocalStr, bLocalStr) {
     a.getDate() === b.getDate()
   );
 }
+
+// src/lib/time.js
+
+export function toMs(iso) {
+  if (!iso) return NaN;
+
+  // Se tiver timezone (Z ou -03:00 etc), o Date lida certo
+  if (/[zZ]$|[+-]\d\d:\d\d$/.test(iso)) {
+    return new Date(iso).getTime();
+  }
+
+  // Caso "YYYY-MM-DDTHH:mm" (sem timezone): interpreta como HORA LOCAL
+  const [datePart, timePart = "00:00:00"] = iso.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+
+  const [hh = 0, mm = 0, ss = 0] = timePart.split(":").map(Number);
+
+  return new Date(y, m - 1, d, hh, mm, ss, 0).getTime();
+}
+

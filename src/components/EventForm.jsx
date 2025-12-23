@@ -68,6 +68,7 @@ export default function EventForm({
   function handleSubmit(e) {
     e.preventDefault();
     if (invalidTime || conflictWith) return;
+    if (conflictWith) return;
 
     onSubmit({
       type,
@@ -273,12 +274,18 @@ export default function EventForm({
         >
           Cancelar
         </button>
-        <button
-          type="submit"
-          className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-white"
-        >
-          Salvar
-        </button>
+<button
+  type="submit"
+  disabled={!!conflictWith}
+  className={[
+    "w-full rounded-xl px-4 py-3 font-semibold",
+    conflictWith
+      ? "cursor-not-allowed bg-slate-300 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+      : "bg-blue-600 text-white hover:bg-blue-700",
+  ].join(" ")}
+>
+  Salvar
+</button>
       </div>
     </form>
   );

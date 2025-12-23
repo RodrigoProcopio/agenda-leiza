@@ -2,26 +2,34 @@ import { useEffect, useState } from "react";
 
 const KEY = "theme"; // "light" | "dark"
 
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === "dark") root.classList.add("dark");
+  else root.classList.remove("dark");
+}
+
 export function useTheme() {
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem(KEY);
-    if (saved === "dark" || saved === "light") return saved;
-    // padrão: claro
-    return "light";
+    if (saved === "light" || saved === "dark") return saved;
+
+    // default: segue o sistema, mas você pode fixar "light" se preferir
+    const prefersDark =
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+    return prefersDark ? "dark" : "light";
   });
 
   useEffect(() => {
-    const root = document.documentElement; // <html>
-
-    if (theme === "dark") root.classList.add("dark");
-    else root.classList.remove("dark"); // ✅ ESSENCIAL
-
     localStorage.setItem(KEY, theme);
+    applyTheme(theme);
   }, [theme]);
 
-  function toggle() {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-  }
+  // garante aplicação no primeiro load
+  useEffect(() => {
+    applyTheme(theme);
+  }, []);
 
-  return { theme, toggle, setTheme };
+  return { theme, setTheme, toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")) };
 }

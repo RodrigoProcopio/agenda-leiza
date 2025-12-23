@@ -1,24 +1,27 @@
-import { isSameDay } from "./time.js";
+// src/lib/conflicts.js
+import { toMs } from "./time.js";
 
-/**
- * Retorna o evento conflitante ou null.
- *
- * Conflito quando:
- * candidateStart < existingEnd && candidateEnd > existingStart
- */
-export function hasConflict(candidate, events, ignoreId = null) {
-  const cStart = new Date(candidate.startISO).getTime();
-  const cEnd = new Date(candidate.endISO).getTime();
+export function hasConflict(candidate, events, excludeId) {
+  if (!candidate?.startISO || !candidate?.endISO) return null;
 
-  for (const ev of events) {
-    if (ignoreId && ev.id === ignoreId) continue;
-    if (!isSameDay(candidate.startISO, ev.startISO)) continue;
+  const cStart = toMs(candidate.startISO);
+  const cEnd = toMs(candidate.endISO);
 
-    const eStart = new Date(ev.startISO).getTime();
-    const eEnd = new Date(ev.endISO).getTime();
+  // se datas inválidas, não acusa conflito
+  if (!Number.isFinite(cStart) || !Number.isFinite(cEnd) || cEnd <= cStart) return null;
 
+  for (const e of events) {
+    if (excludeId && e.id === excludeId) continue;
+
+    const eStart = toMs(e.startISO);
+    const eEnd = toMs(e.endISO);
+
+    if (!Number.isFinite(eStart) || !Number.isFinite(eEnd)) continue;
+
+    // overlap: começa antes do fim do outro E termina depois do começo do outro
     const overlap = cStart < eEnd && cEnd > eStart;
-    if (overlap) return ev;
+
+    if (overlap) return e;
   }
 
   return null;

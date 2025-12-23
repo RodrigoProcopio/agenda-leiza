@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { formatHHMM } from "../lib/time.js";
+import { toMs } from "../lib/time.js";
 
 function badge(type) {
   if (type === "consultorio")
@@ -16,12 +17,14 @@ function typeLabel(type) {
 }
 
 function isPast(ev) {
-  return new Date(ev.endISO).getTime() < Date.now();
+  return toMs(ev.endISO) < Date.now();
 }
 
 function isOngoing(ev) {
   const now = Date.now();
-  return new Date(ev.startISO).getTime() <= now && new Date(ev.endISO).getTime() >= now;
+  const start = toMs(ev.startISO);
+  const end = toMs(ev.endISO);
+  return start <= now && end >= now;
 }
 
 export default function Today({ events, onOpen }) {
@@ -42,10 +45,10 @@ export default function Today({ events, onOpen }) {
 
   const ongoingEvent = useMemo(() => todayEvents.find((e) => isOngoing(e)) || null, [todayEvents]);
 
-  const nextEvent = useMemo(() => {
-    const nowMs = Date.now();
-    return todayEvents.find((e) => new Date(e.startISO).getTime() > nowMs) || null;
-  }, [todayEvents]);
+const nextEvent = useMemo(() => {
+  const nowMs = Date.now();
+  return todayEvents.find((e) => toMs(e.startISO) > nowMs) || null;
+}, [todayEvents]);
 
   const primary = ongoingEvent || nextEvent;
 
