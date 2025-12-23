@@ -1,6 +1,10 @@
 import React, { useMemo } from "react";
-import { formatHHMM } from "../lib/time.js";
-import { toMs } from "../lib/time.js";
+import {
+  toMs,
+  localDayKeyFromIso,
+  localTodayKey,
+  formatHHMMFromIso,
+} from "../lib/time.js";
 
 function badge(type) {
   if (type === "consultorio")
@@ -17,40 +21,71 @@ function typeLabel(type) {
 }
 
 function isPast(ev) {
-  return toMs(ev.endISO) < Date.now();
+  const end = new Date(ev.endISO);
+  return end.getTime() < Date.now();
 }
 
 function isOngoing(ev) {
   const now = Date.now();
-  const start = toMs(ev.startISO);
-  const end = toMs(ev.endISO);
+  const start = new Date(ev.startISO).getTime();
+  const end = new Date(ev.endISO).getTime();
   return start <= now && end >= now;
 }
 
 export default function Today({ events, onOpen }) {
-  const now = new Date();
+  const todayKey = localTodayKey();
 
   const todayEvents = useMemo(() => {
-    return events
-      .filter((e) => {
-        const d = new Date(e.startISO);
-        return (
-          d.getFullYear() === now.getFullYear() &&
-          d.getMonth() === now.getMonth() &&
-          d.getDate() === now.getDate()
-        );
-      })
-      .sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
-  }, [events]);
+  const list = (events || []).filter(
+    (e) => localDayKeyFromIso(e.startISO) === todayKey
+  );
 
-  const ongoingEvent = useMemo(() => todayEvents.find((e) => isOngoing(e)) || null, [todayEvents]);
+  const upcomingOrNow = [];
+  const past = [];
 
-const nextEvent = useMemo(() => {
-  const nowMs = Date.now();
-  return todayEvents.find((e) => toMs(e.startISO) > nowMs) || null;
-}, [todayEvents]);
+  for (const e of list) {
+    (isPast(e) ? past : upcomingOrNow).push(e);
+  }
 
+  // Futuro/Agora primeiro (crescente)
+  upcomingOrNow.sort((a, b) => toMs(a.startISO) - toMs(b.startISO));
+
+  // Passados no final (mais recente primeiro)
+  past.sort((a, b) => toMs(b.startISO) - toMs(a.startISO));
+
+  return [...upcomingOrNow, ...past];
+}, [events, todayKey]);
+
+  // ✅ Evento em andamento (AGORA)
+  const ongoingEvent = useMemo(() => {
+    return todayEvents.find((e) => isOngoing(e)) || null;
+  }, [todayEvents]);
+
+  // ✅ Próximo evento futuro (sempre o próximo, mesmo se existir AGORA)
+  const nextEvent = useMemo(() => {
+    const nowMs = Date.now();
+    return todayEvents.find((e) => toMs(e.startISO) > nowMs) || null;
+  }, [todayEvents]);
+
+  // ✅ Card principal: AGORA (se existir) senão PRÓXIMO
   const primary = ongoingEvent || nextEvent;
+
+  // ✅ IDs que já estão destacados em cima (não repetir na lista)
+  const hiddenIds = useMemo(() => {
+    const s = new Set();
+    if (primary?.id) s.add(primary.id);
+
+    // se existe "AGORA" e existe "PRÓXIMO" diferente, também não repete o PRÓXIMO
+    if (ongoingEvent && nextEvent && nextEvent.id !== ongoingEvent.id) {
+      s.add(nextEvent.id);
+    }
+    return s;
+  }, [primary?.id, ongoingEvent?.id, nextEvent?.id]);
+
+  // ✅ Lista sem duplicados
+  const listEvents = useMemo(() => {
+    return todayEvents.filter((e) => !hiddenIds.has(e.id));
+  }, [todayEvents, hiddenIds]);
 
   const cardBase =
     "rounded-2xl border bg-white/90 p-4 shadow-sm backdrop-blur dark:bg-slate-900/40 dark:border-slate-800";
@@ -59,25 +94,38 @@ const nextEvent = useMemo(() => {
 
   return (
     <div className="mx-auto max-w-2xl p-4 pb-24 md:pb-6">
+      {/* Card principal */}
       {primary && (
-        <div className={[cardStrong, "mt-2 border-sky-200 dark:border-sky-500/20"].join(" ")}>
+        <div
+          className={[
+            cardStrong,
+            "mt-2 border-sky-200 dark:border-sky-500/20",
+          ].join(" ")}
+        >
           <div className="flex items-center justify-between">
             <div
               className={[
                 "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold text-white",
-                primary.id === ongoingEvent?.id ? "bg-emerald-600" : "bg-sky-600",
+                primary.id === ongoingEvent?.id
+                  ? "bg-emerald-600"
+                  : "bg-sky-600",
               ].join(" ")}
             >
               {primary.id === ongoingEvent?.id ? "AGORA" : "PRÓXIMO"}
             </div>
 
             <div className="text-sm text-slate-700 dark:text-slate-200">
-              {formatHHMM(primary.startISO)}–{formatHHMM(primary.endISO)}
+              {formatHHMMFromIso(primary.startISO)}–
+              {formatHHMMFromIso(primary.endISO)}
             </div>
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-3">
-            <div className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${badge(primary.type)}`}>
+            <div
+              className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${badge(
+                primary.type
+              )}`}
+            >
               {typeLabel(primary.type)}
             </div>
 
@@ -93,7 +141,9 @@ const nextEvent = useMemo(() => {
           <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-50">
             {primary.title || "(Sem título)"}
           </div>
-          <div className="text-sm text-slate-600 dark:text-slate-300">{primary.location || ""}</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">
+            {primary.location || ""}
+          </div>
 
           {primary.type === "cirurgia" && primary.surgery && (
             <div className="mt-2 text-sm text-slate-700 dark:text-slate-200">
@@ -101,13 +151,17 @@ const nextEvent = useMemo(() => {
                 R$ {Number(primary.surgery.value || 0).toLocaleString("pt-BR")}
               </span>
               <span className="ml-2 text-slate-600 dark:text-slate-400">
-                • {primary.surgery.payStatus === "recebido" ? "Recebido" : "A receber"}
+                •{" "}
+                {primary.surgery.payStatus === "recebido"
+                  ? "Recebido"
+                  : "A receber"}
               </span>
             </div>
           )}
         </div>
       )}
 
+      {/* Card secundário: PRÓXIMO (se existir AGORA e existir PRÓXIMO diferente) */}
       {ongoingEvent && nextEvent && nextEvent.id !== ongoingEvent.id && (
         <div className={[cardBase, "mt-3"].join(" ")}>
           <div className="flex items-center justify-between">
@@ -115,14 +169,20 @@ const nextEvent = useMemo(() => {
               PRÓXIMO
             </div>
             <div className="text-sm text-slate-700 dark:text-slate-200">
-              {formatHHMM(nextEvent.startISO)}–{formatHHMM(nextEvent.endISO)}
+              {formatHHMMFromIso(nextEvent.startISO)}–
+              {formatHHMMFromIso(nextEvent.endISO)}
             </div>
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-3">
-            <div className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${badge(nextEvent.type)}`}>
+            <div
+              className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${badge(
+                nextEvent.type
+              )}`}
+            >
               {typeLabel(nextEvent.type)}
             </div>
+
             <button
               onClick={() => onOpen(nextEvent)}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50
@@ -132,22 +192,31 @@ const nextEvent = useMemo(() => {
             </button>
           </div>
 
-          <div className="mt-2 font-semibold text-slate-900 dark:text-slate-50">{nextEvent.title || "(Sem título)"}</div>
-          <div className="text-sm text-slate-600 dark:text-slate-300">{nextEvent.location || ""}</div>
+          <div className="mt-2 font-semibold text-slate-900 dark:text-slate-50">
+            {nextEvent.title || "(Sem título)"}
+          </div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">
+            {nextEvent.location || ""}
+          </div>
         </div>
       )}
 
+      {/* Lista do dia (sem repetir os cards de cima) */}
       <div className="mt-4 space-y-2">
-        {todayEvents.length === 0 && (
-          <div className={[cardBase, "text-sm text-slate-600 dark:text-slate-300"].join(" ")}>
-            Nenhum compromisso hoje.
+        {listEvents.length === 0 && (
+          <div
+            className={[
+              cardBase,
+              "text-sm text-slate-600 dark:text-slate-300",
+            ].join(" ")}
+          >
+            Nenhum outro compromisso hoje.
           </div>
         )}
 
-        {todayEvents.map((e) => {
+        {listEvents.map((e) => {
           const past = isPast(e);
           const ongoing = ongoingEvent?.id === e.id;
-          const isPrimary = primary?.id === e.id;
 
           return (
             <button
@@ -156,23 +225,32 @@ const nextEvent = useMemo(() => {
               className={[
                 "w-full text-left",
                 cardBase,
-                isPrimary ? "border-sky-200 dark:border-sky-500/20" : "",
                 past ? "opacity-50" : "opacity-100",
-                ongoing ? "ring-2 ring-emerald-200 dark:ring-emerald-500/20" : "",
+                ongoing
+                  ? "ring-2 ring-emerald-200 dark:ring-emerald-500/20"
+                  : "",
               ].join(" ")}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${badge(e.type)}`}>
+                <div
+                  className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${badge(
+                    e.type
+                  )}`}
+                >
                   {typeLabel(e.type)}
                 </div>
 
                 <div className="text-sm text-slate-700 dark:text-slate-200">
-                  {formatHHMM(e.startISO)}–{formatHHMM(e.endISO)}
+                  {formatHHMMFromIso(e.startISO)}–{formatHHMMFromIso(e.endISO)}
                 </div>
               </div>
 
-              <div className="mt-2 font-semibold text-slate-900 dark:text-slate-50">{e.title || "(Sem título)"}</div>
-              <div className="text-sm text-slate-600 dark:text-slate-300">{e.location || ""}</div>
+              <div className="mt-2 font-semibold text-slate-900 dark:text-slate-50">
+                {e.title || "(Sem título)"}
+              </div>
+              <div className="text-sm text-slate-600 dark:text-slate-300">
+                {e.location || ""}
+              </div>
 
               {e.type === "cirurgia" && e.surgery && (
                 <div className="mt-2 text-sm text-slate-700 dark:text-slate-200">
@@ -180,7 +258,10 @@ const nextEvent = useMemo(() => {
                     R$ {Number(e.surgery.value || 0).toLocaleString("pt-BR")}
                   </span>
                   <span className="ml-2 text-slate-600 dark:text-slate-400">
-                    • {e.surgery.payStatus === "recebido" ? "Recebido" : "A receber"}
+                    •{" "}
+                    {e.surgery.payStatus === "recebido"
+                      ? "Recebido"
+                      : "A receber"}
                   </span>
                 </div>
               )}

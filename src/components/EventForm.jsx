@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { toLocalDateTimeString } from "../lib/time.js";
+import { toUtcISOString, toMs } from "../lib/time.js";
 
 const TYPES = [
   { id: "consultorio", label: "Consultório" },
@@ -16,9 +16,9 @@ export default function EventForm({
   onChangeCandidate,
 }) {
   const today = new Date();
-  const defaultDate = `${today.getFullYear()}-${String(
-    today.getMonth() + 1
-  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const defaultDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+    today.getDate()
+  ).padStart(2, "0")}`;
 
   const [type, setType] = useState(initial?.type ?? "consultorio");
   const [date, setDate] = useState(initial?.date ?? defaultDate);
@@ -37,26 +37,22 @@ export default function EventForm({
   const [weekdays, setWeekdays] = useState([1, 3]); // Seg/Qua default
   const [untilDate, setUntilDate] = useState("");
 
-  const candidate = useMemo(
-  () => ({
+const candidate = useMemo(() => {
+  return {
     type,
-    startISO: toLocalDateTimeString(date, start),
-    endISO: toLocalDateTimeString(date, end),
-  }),
-  [type, date, start, end]
-);
+    startISO: toUtcISOString(date, start),
+    endISO: toUtcISOString(date, end),
+  };
+}, [type, date, start, end]);
 
   useEffect(() => {
     onChangeCandidate?.(candidate);
   }, [candidate, onChangeCandidate]);
 
-  const invalidTime =
-    new Date(candidate.startISO) >= new Date(candidate.endISO);
+  const invalidTime = toMs(candidate.startISO) >= toMs(candidate.endISO);
 
   function toggleWeekday(dow) {
-    setWeekdays((prev) =>
-      prev.includes(dow) ? prev.filter((x) => x !== dow) : [...prev, dow].sort()
-    );
+    setWeekdays((prev) => (prev.includes(dow) ? prev.filter((x) => x !== dow) : [...prev, dow].sort()));
   }
 
   function defaultUntil(dateStr) {
@@ -68,7 +64,6 @@ export default function EventForm({
   function handleSubmit(e) {
     e.preventDefault();
     if (invalidTime || conflictWith) return;
-    if (conflictWith) return;
 
     onSubmit({
       type,
@@ -77,11 +72,7 @@ export default function EventForm({
       location: location.trim(),
       title:
         title.trim() ||
-        (type === "cirurgia"
-          ? "Cirurgia"
-          : type === "consultorio"
-          ? "Consultório"
-          : "Pessoal"),
+        (type === "cirurgia" ? "Cirurgia" : type === "consultorio" ? "Consultório" : "Pessoal"),
       notes: notes.trim(),
       surgery:
         type === "cirurgia"
@@ -126,9 +117,7 @@ export default function EventForm({
             type="button"
             onClick={() => setType(t.id)}
             className={`flex-1 rounded-xl border px-3 py-2 text-sm ${
-              type === t.id
-                ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-200"
+              type === t.id ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200"
             }`}
           >
             {t.label}
@@ -154,18 +143,8 @@ export default function EventForm({
 
       {/* Horários */}
       <div className="grid grid-cols-2 gap-2">
-        <input
-          type="time"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-          className="rounded-xl border px-3 py-2"
-        />
-        <input
-          type="time"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          className="rounded-xl border px-3 py-2"
-        />
+        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className="rounded-xl border px-3 py-2" />
+        <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="rounded-xl border px-3 py-2" />
       </div>
 
       <input
@@ -179,17 +158,8 @@ export default function EventForm({
       {type === "cirurgia" && (
         <div className="rounded-2xl border p-3">
           <div className="grid grid-cols-2 gap-2">
-            <input
-              placeholder="Valor"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="rounded-xl border px-3 py-2"
-            />
-            <select
-              value={payStatus}
-              onChange={(e) => setPayStatus(e.target.value)}
-              className="rounded-xl border px-3 py-2"
-            >
+            <input placeholder="Valor" value={value} onChange={(e) => setValue(e.target.value)} className="rounded-xl border px-3 py-2" />
+            <select value={payStatus} onChange={(e) => setPayStatus(e.target.value)} className="rounded-xl border px-3 py-2">
               <option value="a_receber">A receber</option>
               <option value="recebido">Recebido</option>
             </select>
@@ -201,11 +171,7 @@ export default function EventForm({
       {type === "consultorio" && (
         <div className="rounded-2xl border p-3">
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={repeatWeekly}
-              onChange={(e) => setRepeatWeekly(e.target.checked)}
-            />
+            <input type="checkbox" checked={repeatWeekly} onChange={(e) => setRepeatWeekly(e.target.checked)} />
             Repetir semanalmente
           </label>
 
@@ -226,9 +192,7 @@ export default function EventForm({
                     type="button"
                     onClick={() => toggleWeekday(d)}
                     className={`rounded-xl border px-3 py-1 text-sm ${
-                      weekdays.includes(d)
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
-                        : "border-slate-200"
+                      weekdays.includes(d) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200"
                     }`}
                   >
                     {l}
@@ -236,21 +200,16 @@ export default function EventForm({
                 ))}
               </div>
 
-<div className="mt-2">
-  <div className="mb-1 text-sm font-medium">Gerar até</div>
-
-  <input
-    type="date"
-    value={untilDate}
-    onChange={(e) => setUntilDate(e.target.value)}
-    className="w-full rounded-xl border px-3 py-2"
-  />
-
-  <div className="mt-1 text-xs text-slate-500">
-    Se vazio, o sistema gera automaticamente ~12 semanas.
-  </div>
-</div>
-
+              <div className="mt-2">
+                <div className="mb-1 text-sm font-medium">Gerar até</div>
+                <input
+                  type="date"
+                  value={untilDate}
+                  onChange={(e) => setUntilDate(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-2"
+                />
+                <div className="mt-1 text-xs text-slate-500">Se vazio, o sistema gera automaticamente ~12 semanas.</div>
+              </div>
             </>
           )}
         </div>
@@ -259,33 +218,27 @@ export default function EventForm({
       {/* Ações */}
       <div className="flex gap-2 pt-2">
         {onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex-1 rounded-xl border border-red-300 px-4 py-2 text-red-700"
-          >
+          <button type="button" onClick={onDelete} className="flex-1 rounded-xl border border-red-300 px-4 py-2 text-red-700">
             Excluir
           </button>
         )}
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 rounded-xl border px-4 py-2"
-        >
+
+        <button type="button" onClick={onCancel} className="flex-1 rounded-xl border px-4 py-2">
           Cancelar
         </button>
-<button
-  type="submit"
-  disabled={!!conflictWith}
-  className={[
-    "w-full rounded-xl px-4 py-3 font-semibold",
-    conflictWith
-      ? "cursor-not-allowed bg-slate-300 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-      : "bg-blue-600 text-white hover:bg-blue-700",
-  ].join(" ")}
->
-  Salvar
-</button>
+
+        <button
+          type="submit"
+          disabled={!!conflictWith || invalidTime}
+          className={[
+            "w-full rounded-xl px-4 py-3 font-semibold",
+            conflictWith || invalidTime
+              ? "cursor-not-allowed bg-slate-300 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+              : "bg-blue-600 text-white hover:bg-blue-700",
+          ].join(" ")}
+        >
+          Salvar
+        </button>
       </div>
     </form>
   );
