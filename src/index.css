@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================
+   FullCalendar — Base (claro médico)
+   ================================ */
+.fc {
+  --fc-border-color: #e2e8f0;     /* slate-200 */
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: #f8fafc; /* slate-50 */
+  --fc-today-bg-color: #eff6ff;   /* blue-50 */
+  --fc-small-font-size: 0.78rem;
+}
+
+/* Título (data) menor e sem quebra */
+.fc .fc-toolbar-title {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: #0f172a; /* slate-900 */
+  white-space: nowrap;
+}
+
+/* Botões em geral (prev/next) */
+.fc .fc-button {
+  border-radius: 0.75rem !important;
+  padding: 0.3rem 0.6rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+/* Botão primário (prev/next) */
+.fc .fc-button-primary {
+  background-color: #1e293b !important; /* slate-800 */
+  border: none !important;
+}
+.fc .fc-button-primary:hover {
+  background-color: #334155 !important; /* slate-700 */
+}
+
+/* Botão "Hoje" com cara de app médico */
+.fc .fc-today-button {
+  background-color: #e0f2fe !important; /* sky-100 */
+  color: #0c4a6e !important;            /* sky-900 */
+  border: 1px solid #bae6fd !important; /* sky-200 */
+  border-radius: 9999px !important;
+  padding: 0.25rem 0.6rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+}
+.fc .fc-today-button:hover {
+  background-color: #bae6fd !important; /* sky-200 */
+}
+
+/* Labels e textos do grid */
+.fc .fc-timegrid-axis,
+.fc .fc-col-header-cell-cushion,
+.fc .fc-timegrid-slot-label-cushion {
+  color: #334155; /* slate-700 */
+}
+
+/* ================================
+   FullCalendar — Dark
+   ================================ */
+.dark .fc {
+  --fc-border-color: #334155;                  /* slate-700 */
+  --fc-neutral-bg-color: #0b1220;              /* dark suave */
+  --fc-today-bg-color: rgba(56, 189, 248, 0.10); /* sky-400/10 */
+  color: #e5e7eb;                              /* slate-200 */
+}
+
+.dark .fc .fc-toolbar-title {
+  color: #e5e7eb; /* slate-200 */
+}
+
+.dark .fc .fc-timegrid-axis,
+.dark .fc .fc-col-header-cell-cushion,
+.dark .fc .fc-timegrid-slot-label-cushion {
+  color: #cbd5e1; /* slate-300 */
+}
+
+.dark .fc .fc-scrollgrid,
+.dark .fc .fc-timegrid-divider,
+.dark .fc .fc-col-header-cell,
+.dark .fc .fc-timegrid-axis,
+.dark .fc .fc-timegrid-slot,
+.dark .fc .fc-scrollgrid-section-body td {
+  border-color: #1f2937 !important; /* slate-800 */
+}
+
+.dark .fc .fc-button-primary {
+  background-color: #0f172a !important; /* slate-900 */
+}
+.dark .fc .fc-button-primary:hover {
+  background-color: #1e293b !important; /* slate-800 */
+}
+
+.dark .fc .fc-today-button {
+  background-color: rgba(56, 189, 248, 0.15) !important;
+  color: #e0f2fe !important; /* sky-100 */
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+}
+.dark .fc .fc-today-button:hover {
+  background-color: rgba(56, 189, 248, 0.25) !important;
+}
