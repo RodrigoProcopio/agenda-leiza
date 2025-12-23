@@ -297,7 +297,7 @@ export default function App() {
     tab === "today"
       ? { title: "Hoje", showDate: true }
       : tab === "agenda"
-      ? { title: "Agenda", showDate: false }
+      ? { title: "Agenda", showDate: true }
       : { title: "Financeiro", showDate: true };
 
   // ---------- UI: Auth loading ----------
@@ -314,10 +314,13 @@ export default function App() {
     return <Login />;
   }
 
+async function logout() {
+  await supabase.auth.signOut();
+}
+
   return (
     <div className="min-h-dvh bg-sky-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <Header {...headerProps} theme={theme} onToggleTheme={toggle} />
-
+      <Header {...headerProps} theme={theme} onToggleTheme={toggle} onLogout={logout} />
       {loadingEvents && (
         <div className="mx-auto max-w-2xl px-4 py-2 text-xs text-slate-600 dark:text-slate-300">
           Sincronizando…
