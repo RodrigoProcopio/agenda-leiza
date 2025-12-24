@@ -1,31 +1,32 @@
-// src/lib/conflicts.js
-import { toMs } from "./time.js";
+export function overlaps(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && aEnd > bStart;
+}
 
-export function hasConflict(candidate, events, excludeId) {
+/**
+ * candidate: { startISO, endISO }
+ * events: lista de eventos com startISO/endISO
+ * ignoreId: id a ignorar (edição do próprio, ou tmp-id)
+ */
+export function hasConflict(candidate, events, ignoreId) {
   if (!candidate?.startISO || !candidate?.endISO) return null;
 
-  const cStart = toMs(candidate.startISO);
-  const cEnd = toMs(candidate.endISO);
+  const cStart = new Date(candidate.startISO).getTime();
+  const cEnd = new Date(candidate.endISO).getTime();
+  if (!Number.isFinite(cStart) || !Number.isFinite(cEnd)) return null;
 
-  // se datas inválidas, não acusa conflito
-  if (!Number.isFinite(cStart) || !Number.isFinite(cEnd) || cEnd <= cStart) return null;
+  for (const ev of events || []) {
+    if (!ev?.startISO || !ev?.endISO) continue;
 
-  for (const e of events) {
-    // ✅ ignora o próprio (quando estiver editando)
-    if (excludeId && e.id === excludeId) continue;
+    // ✅ ignora o evento sendo editado (qualquer id, tmp ou real)
+    if (ignoreId && ev.id === ignoreId) continue;
 
-    // ✅ ignora eventos temporários (criação otimista no App)
-    if (typeof e.id === "string" && e.id.startsWith("tmp-")) continue;
-
-    const eStart = toMs(e.startISO);
-    const eEnd = toMs(e.endISO);
-
+    const eStart = new Date(ev.startISO).getTime();
+    const eEnd = new Date(ev.endISO).getTime();
     if (!Number.isFinite(eStart) || !Number.isFinite(eEnd)) continue;
 
-    // overlap: começa antes do fim do outro E termina depois do começo do outro
-    const overlap = cStart < eEnd && cEnd > eStart;
-
-    if (overlap) return e;
+    if (overlaps(cStart, cEnd, eStart, eEnd)) {
+      return ev;
+    }
   }
 
   return null;

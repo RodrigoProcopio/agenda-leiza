@@ -4,6 +4,7 @@ import BottomNav from "./components/BottomNav.jsx";
 import Fab from "./components/Fab.jsx";
 import Modal from "./components/Modal.jsx";
 import EventForm from "./components/EventForm.jsx";
+import ConfirmModal from "./components/ConfirmModal.jsx";
 
 import Today from "./pages/Today.jsx";
 import Agenda from "./pages/Agenda.jsx";
@@ -13,42 +14,81 @@ import Login from "./pages/Login.jsx";
 import { hasConflict } from "./lib/conflicts.js";
 import { buildWeeklyRecurringEvents } from "./lib/recurrence.js";
 import { useTheme } from "./lib/useTheme.js";
+import { localYmdFromIso, localHmFromIso } from "./lib/time.js";
 
 import { supabase } from "./lib/supabase.js";
 import {
   fetchEvents,
   createEvent,
+  createEventsBulk,
   updateEvent as updateEventCloud,
   deleteEvent as deleteEventCloud,
   deleteEventsByRecurrence,
 } from "./lib/eventsApi.js";
 
+import {
+  fetchRecurrenceExceptions,
+  addRecurrenceException,
+  deleteRecurrenceExceptions,
+} from "./lib/recurrenceExceptionsApi.js";
+
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
+}
+function tmpId() {
+  return "tmp-" + uid();
 }
 
 export default function App() {
   const [tab, setTab] = useState("today");
   const { theme, toggle } = useTheme();
 
-  // Auth/session
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Events
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
-  // Modal principal
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [candidate, setCandidate] = useState(null);
 
-  // Modal de escolha ao excluir recorrente
+  const [isSaving, setIsSaving] = useState(false);
+  const [recurrenceError, setRecurrenceError] = useState(null);
+
   const [deleteChoiceOpen, setDeleteChoiceOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  // ---------- AUTH: pega sessão + ouve mudanças ----------
+  const [applySeriesOpen, setApplySeriesOpen] = useState(false);
+  const [pendingEditData, setPendingEditData] = useState(null);
+
+  // cache simples de exceções por recurrenceId
+  const [exceptionsMap, setExceptionsMap] = useState({}); // { [recurrenceId]: Set(dayKey) }
+
+  async function reloadEventsSafe() {
+    try {
+      const list = await fetchEvents();
+      setEvents(list);
+    } catch (e) {
+      console.error("Erro ao recarregar eventos:", e);
+    }
+  }
+
+  async function loadExceptionsFor(recurrenceId) {
+    if (!recurrenceId) return new Set();
+    if (exceptionsMap[recurrenceId]) return exceptionsMap[recurrenceId];
+
+    try {
+      const rows = await fetchRecurrenceExceptions(recurrenceId);
+      const set = new Set(rows.map((r) => r.day_key));
+      setExceptionsMap((prev) => ({ ...prev, [recurrenceId]: set }));
+      return set;
+    } catch (e) {
+      console.error("Erro ao carregar exceções:", e);
+      return new Set();
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
 
@@ -71,10 +111,10 @@ export default function App() {
     };
   }, []);
 
-  // ---------- Carrega eventos quando logar ----------
   useEffect(() => {
     if (!user) {
       setEvents([]);
+      setExceptionsMap({});
       return;
     }
 
@@ -99,65 +139,172 @@ export default function App() {
     };
   }, [user]);
 
-  // ---------- Conflito ----------
   const conflictWith = useMemo(() => {
     if (!candidate) return null;
+    if (isSaving) return null;
     return hasConflict(candidate, events, editing?.id) || null;
-  }, [candidate, events, editing]);
+  }, [candidate, events, editing, isSaving]);
 
   function openNew() {
     setEditing(null);
     setCandidate(null);
+    setRecurrenceError(null);
     setModalOpen(true);
   }
 
-  function openEdit(ev) {
+  async function openEdit(ev) {
     setEditing(ev);
     setCandidate({ type: ev.type, startISO: ev.startISO, endISO: ev.endISO });
+    setRecurrenceError(null);
     setModalOpen(true);
+
+    if (ev?.recurrenceId) {
+      await loadExceptionsFor(ev.recurrenceId);
+    }
   }
 
   function closeModal() {
     setModalOpen(false);
     setEditing(null);
     setCandidate(null);
+    setIsSaving(false);
+    setRecurrenceError(null);
   }
 
-  // ---------- CREATE / UPDATE ----------
-  async function handleSubmit(formData) {
-    const nextCandidate = {
-      type: formData.type,
-      startISO: formData.startISO,
-      endISO: formData.endISO,
+  async function recreateRecurringSeries(recurrenceId, baseEvent, recurrence) {
+    const existingNotInSeries = events.filter((e) => e.recurrenceId !== recurrenceId);
+
+    const skipped = await loadExceptionsFor(recurrenceId); // Set(dayKey)
+
+    const result = buildWeeklyRecurringEvents({
+      baseEvent,
+      startDate: recurrence.startDate,
+      startTime: recurrence.startTime,
+      endTime: recurrence.endTime,
+      weekdays: recurrence.weekdays,
+      untilDate: recurrence.untilDate,
+      existingEvents: existingNotInSeries,
+      uidFn: tmpId,
+    });
+
+    if (!result.ok) return { ok: false, conflict: true };
+    if (!result.events?.length) return { ok: false, empty: true };
+
+    // filtra dias pulados
+    const filtered = result.events.filter((e) => !skipped.has(localYmdFromIso(e.startISO)));
+
+    const exceptions = events.filter((e) => e.recurrenceId === recurrenceId && e.isException);
+
+    setEvents((prev) => [
+      ...prev.filter((e) => e.recurrenceId !== recurrenceId),
+      ...exceptions,
+      ...filtered,
+    ]);
+
+    await deleteEventsByRecurrence(recurrenceId);
+    await createEventsBulk(filtered);
+    await reloadEventsSafe();
+    return { ok: true };
+  }
+
+  async function applyEditToSingle(formData) {
+    const updated = {
+      ...editing,
+      ...formData,
+      recurrenceId: null,
+      recurrence: null,
+      isException: true,
     };
 
+    try {
+      setEvents((prev) => prev.map((e) => (e.id === editing.id ? updated : e)));
+      await updateEventCloud(editing.id, updated);
+      closeModal();
+    } catch (e) {
+      console.error("Erro ao atualizar evento (single):", e);
+      await reloadEventsSafe();
+      setIsSaving(false);
+    }
+  }
+
+  async function applyEditToSeries(formData) {
+    const recurrenceId = editing.recurrenceId;
+    const recurrence = formData.recurrence;
+
+    const baseEvent = {
+      type: formData.type,
+      location: formData.location,
+      title: formData.title,
+      notes: formData.notes,
+      surgery: null,
+      recurrenceId,
+      recurrence,
+      isException: false,
+    };
+
+    try {
+      const out = await recreateRecurringSeries(recurrenceId, baseEvent, recurrence);
+
+      if (!out.ok) {
+        if (out.empty) setRecurrenceError("Nenhuma ocorrência foi gerada. Ajuste os dias da semana e/ou a data Até.");
+        else setRecurrenceError("Conflito ao recriar a recorrência. Ajuste os horários/dias.");
+        setIsSaving(false);
+        return;
+      }
+
+      closeModal();
+    } catch (e) {
+      console.error("Erro ao atualizar série recorrente:", e);
+      await reloadEventsSafe();
+      setIsSaving(false);
+    }
+  }
+
+  async function handleSubmit(formData) {
+    if (isSaving) return;
+    setRecurrenceError(null);
+
+    const nextCandidate = { type: formData.type, startISO: formData.startISO, endISO: formData.endISO };
     const conflict = hasConflict(nextCandidate, events, editing?.id);
     if (conflict) {
       setCandidate(nextCandidate);
       return;
     }
 
-    // ======= EDIÇÃO (atualiza só 1 evento) =======
+    setIsSaving(true);
+
     if (editing) {
-      const updated = { ...editing, ...formData };
+      const isRecurringEvent = !!editing.recurrenceId && !editing.isException;
+      const wantsWeekly = formData.type === "consultorio" && formData.recurrence?.kind === "weekly";
+
+      if (isRecurringEvent && wantsWeekly) {
+        setPendingEditData(formData);
+        setApplySeriesOpen(true);
+        return;
+      }
 
       try {
-        // otimista no UI
+        const updated = {
+          ...editing,
+          ...formData,
+          recurrenceId: null,
+          recurrence: null,
+          isException: false,
+        };
         setEvents((prev) => prev.map((e) => (e.id === editing.id ? updated : e)));
         await updateEventCloud(editing.id, updated);
         closeModal();
       } catch (e) {
         console.error("Erro ao atualizar evento:", e);
-        // fallback: recarrega
-        const list = await fetchEvents();
-        setEvents(list);
+        await reloadEventsSafe();
+        setIsSaving(false);
       }
       return;
     }
 
-    // ======= CRIAÇÃO COM RECORRÊNCIA SEMANAL =======
     if (formData.recurrence?.kind === "weekly") {
       const recurrenceId = uid();
+      const recurrence = formData.recurrence;
 
       const baseEvent = {
         type: formData.type,
@@ -166,71 +313,69 @@ export default function App() {
         notes: formData.notes,
         surgery: null,
         recurrenceId,
+        recurrence,
+        isException: false,
       };
 
       const result = buildWeeklyRecurringEvents({
         baseEvent,
-        startDate: formData.recurrence.startDate,
-        startTime: formData.recurrence.startTime,
-        endTime: formData.recurrence.endTime,
-        weekdays: formData.recurrence.weekdays,
-        untilDate: formData.recurrence.untilDate,
+        startDate: recurrence.startDate,
+        startTime: recurrence.startTime,
+        endTime: recurrence.endTime,
+        weekdays: recurrence.weekdays,
+        untilDate: recurrence.untilDate,
         existingEvents: events,
-        uidFn: () => crypto?.randomUUID?.() ?? uid(),
+        uidFn: tmpId,
       });
 
-      if (!result.ok) return;
-
-      // salva em lote (um a um) — simples
-      try {
-        // otimista
-        setEvents((prev) => [...prev, ...result.events]);
-
-        for (const ev of result.events) {
-          await createEvent(ev);
+      if (!result.ok) {
+        if (result.tooMany) {
+          setRecurrenceError(`Recorrência muito grande. Limite: ${result.max} ocorrências.`);
         }
+        setIsSaving(false);
+        return;
+      }
+      
+      if (!result.events?.length) {
+        setRecurrenceError("Nenhuma ocorrência foi gerada. Ajuste os dias da semana e/ou a data Até.");
+        setIsSaving(false);
+        return;
+      }
 
-        // recarrega para garantir IDs do banco
-        const list = await fetchEvents();
-        setEvents(list);
-
+      try {
+        setEvents((prev) => [...prev, ...result.events]);
+        await createEventsBulk(result.events);
+        await reloadEventsSafe();
         closeModal();
       } catch (e) {
         console.error("Erro ao criar recorrentes:", e);
-        const list = await fetchEvents();
-        setEvents(list);
+        await reloadEventsSafe();
+        setIsSaving(false);
       }
       return;
     }
 
-    // ======= CRIAÇÃO NORMAL =======
     try {
-      const local = { id: "tmp-" + uid(), ...formData };
+      const local = { id: tmpId(), ...formData };
       setEvents((prev) => [...prev, local]);
-
       const created = await createEvent(formData);
-
-      // troca tmp pelo id real
       setEvents((prev) => prev.map((e) => (e.id === local.id ? created : e)));
-
       closeModal();
     } catch (e) {
       console.error("Erro ao criar evento:", e);
-      const list = await fetchEvents();
-      setEvents(list);
+      await reloadEventsSafe();
+      setIsSaving(false);
     }
   }
 
-  // ---------- DELETE ----------
   async function deleteOne(id) {
-    // otimista
     setEvents((prev) => prev.filter((e) => e.id !== id));
     try {
+      if (String(id).startsWith("tmp-")) return;
       await deleteEventCloud(id);
     } catch (e) {
       console.error("Erro ao excluir evento:", e);
-      const list = await fetchEvents();
-      setEvents(list);
+      await reloadEventsSafe();
     }
   }
 
@@ -245,6 +390,22 @@ export default function App() {
   }
 
   async function deleteRecurringOne(id) {
+    // ✅ grava exceção (day_key) para não “voltar” ao recriar série
+    const ev = events.find((e) => e.id === id);
+    if (ev?.recurrenceId) {
+      const dayKey = localYmdFromIso(ev.startISO);
+      try {
+        await addRecurrenceException(ev.recurrenceId, dayKey);
+        setExceptionsMap((prev) => {
+          const set = new Set(prev[ev.recurrenceId] || []);
+          set.add(dayKey);
+          return { ...prev, [ev.recurrenceId]: set };
+        });
+      } catch (e) {
+        console.error("Erro ao registrar exceção:", e);
+      }
+    }
+
     await deleteOne(id);
     setDeleteChoiceOpen(false);
     setDeleteTarget(null);
@@ -252,14 +413,18 @@ export default function App() {
   }
 
   async function deleteRecurringAll(recurrenceId) {
-    // otimista
     setEvents((prev) => prev.filter((e) => e.recurrenceId !== recurrenceId));
     try {
       await deleteEventsByRecurrence(recurrenceId);
+      await deleteRecurrenceExceptions(recurrenceId);
+      setExceptionsMap((prev) => {
+        const cp = { ...prev };
+        delete cp[recurrenceId];
+        return cp;
+      });
     } catch (e) {
       console.error("Erro ao excluir recorrentes:", e);
-      const list = await fetchEvents();
-      setEvents(list);
+      await reloadEventsSafe();
     } finally {
       setDeleteChoiceOpen(false);
       setDeleteTarget(null);
@@ -267,7 +432,6 @@ export default function App() {
     }
   }
 
-  // ---------- Toggle Pago ----------
   async function togglePaid(id) {
     const found = events.find((e) => e.id === id);
     if (!found || !found.surgery) return;
@@ -280,19 +444,17 @@ export default function App() {
       },
     };
 
-    // otimista
     setEvents((prev) => prev.map((e) => (e.id === id ? next : e)));
 
     try {
+      if (String(id).startsWith("tmp-")) return;
       await updateEventCloud(id, next);
     } catch (e) {
       console.error("Erro ao atualizar pagamento:", e);
-      const list = await fetchEvents();
-      setEvents(list);
+      await reloadEventsSafe();
     }
   }
 
-  // ---------- Header props ----------
   const headerProps =
     tab === "today"
       ? { title: "Hoje", showDate: true }
@@ -300,7 +462,6 @@ export default function App() {
       ? { title: "Agenda", showDate: true }
       : { title: "Financeiro", showDate: true };
 
-  // ---------- UI: Auth loading ----------
   if (authLoading) {
     return (
       <div className="min-h-dvh bg-sky-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -308,19 +469,41 @@ export default function App() {
       </div>
     );
   }
+  if (!user) return <Login />;
 
-  // ---------- UI: não logado ----------
-  if (!user) {
-    return <Login />;
+  async function logout() {
+    await supabase.auth.signOut();
   }
 
-async function logout() {
-  await supabase.auth.signOut();
-}
+  const initialForForm = editing
+    ? (() => {
+        const ymd = localYmdFromIso(editing.startISO);
+        const startHm = localHmFromIso(editing.startISO);
+        const endHm = localHmFromIso(editing.endISO);
+
+        const rec = editing.recurrence;
+        const isWeekly = rec?.kind === "weekly";
+
+        return {
+          ...editing,
+          date: ymd,
+          start: startHm,
+          end: endHm,
+          value: editing.surgery?.value,
+          payStatus: editing.surgery?.payStatus,
+          repeatWeekly: isWeekly,
+          weekdays: isWeekly ? (rec.weekdays ?? []) : [],
+          untilDate: isWeekly ? (rec.untilDate ?? "") : "",
+        };
+      })()
+    : null;
+
+  const isEditingRecurring = !!editing?.recurrenceId && !editing?.isException;
 
   return (
     <div className="min-h-dvh bg-sky-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <Header {...headerProps} theme={theme} onToggleTheme={toggle} onLogout={logout} />
+
       {loadingEvents && (
         <div className="mx-auto max-w-2xl px-4 py-2 text-xs text-slate-600 dark:text-slate-300">
           Sincronizando…
@@ -334,21 +517,17 @@ async function logout() {
       <Fab onClick={openNew} />
       <BottomNav tab={tab} setTab={setTab} />
 
-      {/* Modal principal */}
       <Modal open={modalOpen} title={editing ? "Editar compromisso" : "Novo compromisso"} onClose={closeModal}>
+        {isEditingRecurring && (
+          <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-200">
+            Este compromisso é <b>recorrente</b>. Ao salvar, você poderá aplicar as alterações para toda a recorrência.
+          </div>
+        )}
+
         <EventForm
-          initial={
-            editing
-              ? {
-                  ...editing,
-                  date: editing.startISO.slice(0, 10),
-                  start: editing.startISO.slice(11, 16),
-                  end: editing.endISO.slice(11, 16),
-                  value: editing.surgery?.value,
-                  payStatus: editing.surgery?.payStatus,
-                }
-              : null
-          }
+          isSaving={isSaving}
+          recurrenceError={recurrenceError}
+          initial={initialForForm}
           conflictWith={conflictWith}
           onChangeCandidate={setCandidate}
           onSubmit={handleSubmit}
@@ -357,7 +536,31 @@ async function logout() {
         />
       </Modal>
 
-      {/* Modal de decisão para recorrentes */}
+      <ConfirmModal
+        open={applySeriesOpen}
+        title="Aplicar alterações"
+        description="Você quer aplicar as alterações apenas neste compromisso, ou em todos os compromissos desta recorrência?"
+        primaryText="Todos da recorrência"
+        secondaryText="Apenas este"
+        onClose={() => {
+          setApplySeriesOpen(false);
+          setPendingEditData(null);
+          setIsSaving(false);
+        }}
+        onPrimary={async () => {
+          setApplySeriesOpen(false);
+          const data = pendingEditData;
+          setPendingEditData(null);
+          await applyEditToSeries(data);
+        }}
+        onSecondary={async () => {
+          setApplySeriesOpen(false);
+          const data = pendingEditData;
+          setPendingEditData(null);
+          await applyEditToSingle(data);
+        }}
+      />
+
       <Modal
         open={deleteChoiceOpen}
         title="Excluir compromisso recorrente"
