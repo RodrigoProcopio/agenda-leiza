@@ -1,8 +1,5 @@
 import { supabase } from "./supabase";
 
-/**
- * Pega usuário logado
- */
 export async function getSessionUser() {
   const { data, error } = await supabase.auth.getUser();
   if (error) throw error;
@@ -10,11 +7,9 @@ export async function getSessionUser() {
 }
 
 /**
- * Converte linha do banco (snake_case) para objeto usado no app (camelCase)
+ * Converte linha do banco (snake_case) → objeto do app (camelCase)
  */
 function mapRow(r) {
-  if (!r) return null;
-
   return {
     id: r.id,
     type: r.type,
@@ -31,16 +26,19 @@ function mapRow(r) {
 }
 
 /**
- * Busca eventos do usuário atual
+ * Buscar eventos do usuário atual
  */
 export async function fetchEvents() {
-  const user = await getSessionUser();
+  const session = await supabase.auth.getSession();
+  const user = session.data?.session?.user;
+
   if (!user) return [];
 
   const { data, error } = await supabase
     .from("events")
     .select("*")
     .eq("user_id", user.id)
+    // 👇 ordena pela coluna real do banco
     .order("start_iso", { ascending: true });
 
   if (error) {
@@ -48,19 +46,23 @@ export async function fetchEvents() {
     throw error;
   }
 
-  return (data || []).map(mapRow).filter(Boolean);
+  // 👇 agora converte tudo pra startISO/endISO
+  return (data || []).map(mapRow);
 }
 
 /**
- * Cria um evento simples
+ * Criar 1 evento
  */
 export async function createEvent(event) {
-  const user = await getSessionUser();
+  const session = await supabase.auth.getSession();
+  const user = session.data?.session?.user;
+
   if (!user) {
     throw new Error("Usuário não autenticado ao criar evento");
   }
 
-  const payload = {
+  // 👇 monta payload no formato da TABELA (snake_case)
+  const full = {
     user_id: user.id,
     type: event.type,
     title: event.title ?? null,
@@ -76,8 +78,8 @@ export async function createEvent(event) {
 
   const { data, error } = await supabase
     .from("events")
-    .insert(payload)
-    .select("*")
+    .insert(full)
+    .select()
     .single();
 
   if (error) {
@@ -85,19 +87,23 @@ export async function createEvent(event) {
     throw error;
   }
 
+  // devolve no formato que o app espera
   return mapRow(data);
 }
 
 /**
- * Cria vários eventos (recorrência)
+ * Criar vários eventos (recorrência)
  */
 export async function createEventsBulk(list) {
-  const user = await getSessionUser();
+  const session = await supabase.auth.getSession();
+  const user = session.data?.session?.user;
+
   if (!user) {
     throw new Error("Usuário não autenticado ao criar eventos");
   }
 
-  const payload = (list || []).map((ev) => ({
+  // 👇 converte cada item para o formato da tabela
+  const final = (list || []).map((ev) => ({
     user_id: user.id,
     type: ev.type,
     title: ev.title ?? null,
@@ -111,19 +117,19 @@ export async function createEventsBulk(list) {
     is_exception: !!ev.isException,
   }));
 
-  if (!payload.length) return [];
+  if (!final.length) return [];
 
   const { data, error } = await supabase
     .from("events")
-    .insert(payload)
-    .select("*");
+    .insert(final)
+    .select();
 
   if (error) {
     console.error("Erro ao criar eventos recorrentes:", error);
     throw error;
   }
 
-  return (data || []).map(mapRow).filter(Boolean);
+  return (data || []).map(mapRow);
 }
 
 /**
@@ -135,7 +141,6 @@ export async function restoreBackupEvents(events) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
 
-  // 1) Apaga tudo do usuário
   const { error: delError } = await supabase
     .from("events")
     .delete()
@@ -146,17 +151,16 @@ export async function restoreBackupEvents(events) {
     throw delError;
   }
 
-  // 2) Se o backup vier vazio, nada a inserir
   if (!events || !events.length) {
     return [];
   }
 
-  // 3) Reinsere usando a mesma lógica de bulk (espera formato camelCase)
+  // `events` vem em camelCase, o createEventsBulk já converte
   return await createEventsBulk(events);
 }
 
 /**
- * Atualiza um evento
+ * Atualizar evento
  */
 export async function updateEvent(id, ev) {
   const user = await getSessionUser();
@@ -183,16 +187,12 @@ export async function updateEvent(id, ev) {
     .select("*")
     .single();
 
-  if (error) {
-    console.error("Erro ao atualizar evento:", error);
-    throw error;
-  }
-
+  if (error) throw error;
   return mapRow(data);
 }
 
 /**
- * Deleta um evento
+ * Deletar 1 evento
  */
 export async function deleteEvent(id) {
   const user = await getSessionUser();
@@ -204,14 +204,11 @@ export async function deleteEvent(id) {
     .eq("id", id)
     .eq("user_id", user.id);
 
-  if (error) {
-    console.error("Erro ao deletar evento:", error);
-    throw error;
-  }
+  if (error) throw error;
 }
 
 /**
- * Deleta todos os eventos de uma recorrência (exceto exceções)
+ * Deletar todos os eventos de uma recorrência (exceto exceções)
  */
 export async function deleteEventsByRecurrence(recurrenceId) {
   const user = await getSessionUser();
@@ -224,8 +221,5 @@ export async function deleteEventsByRecurrence(recurrenceId) {
     .eq("user_id", user.id)
     .eq("is_exception", false);
 
-  if (error) {
-    console.error("Erro ao deletar recorrência:", error);
-    throw error;
-  }
+  if (error) throw error;
 }
