@@ -32,21 +32,28 @@ export async function fetchEvents() {
   const session = await supabase.auth.getSession();
   const user = session.data?.session?.user;
 
-  if (!user) return [];
+  console.log("[fetchEvents] session user:", user);
+
+  // Se não tiver usuário, já avisa no console e retorna vazio
+  if (!user) {
+    console.warn("[fetchEvents] Nenhum usuário logado. Retornando [].");
+    return [];
+  }
 
   const { data, error } = await supabase
     .from("events")
     .select("*")
+    // 👇 se quiser testar sem filtro, comente essa linha TEMPORARIAMENTE
     .eq("user_id", user.id)
-    // 👇 coluna real da tabela
     .order("start_iso", { ascending: true });
 
   if (error) {
-    console.error("Erro ao buscar eventos:", error);
+    console.error("[fetchEvents] Erro ao buscar eventos:", error);
     throw error;
   }
 
-  // 👇 agora o App recebe sempre startISO/endISO
+  console.log("[fetchEvents] Linhas recebidas do Supabase:", data);
+
   return (data || []).map(mapRow);
 }
 
