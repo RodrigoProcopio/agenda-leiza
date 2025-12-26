@@ -104,7 +104,7 @@ function App() {
           setUser(data?.user ?? null);
         }
       } catch (err) {
-        console.error("Erro ao carregar usuário:", err);
+        console.error("Erro ao carregar usuário (catch):", err);
         setUser(null);
       } finally {
         setAuthLoading(false);
@@ -114,7 +114,6 @@ function App() {
     loadUser();
   }, []);
 
-  // 👉 Recebe o usuário retornado pelo Login.jsx
   function handleLoginSuccess(userFromLogin) {
     setUser(userFromLogin ?? null);
   }
@@ -129,6 +128,34 @@ function App() {
       setEvents([]);
     }
   }
+
+  // -----------------------------
+  //   CARREGAR EVENTOS DO SUPABASE
+  // -----------------------------
+  useEffect(() => {
+    // se não tiver usuário logado, limpa e não busca
+    if (!user) {
+      console.log("[App] Sem usuário, limpando eventos.");
+      setEvents([]);
+      return;
+    }
+
+    async function loadEvents() {
+      try {
+        console.log("[App] Carregando eventos para user:", user.id);
+        setLoadingEvents(true);
+        const data = await fetchEvents();
+        console.log("[App] Eventos recebidos:", data);
+        setEvents(data || []);
+      } catch (err) {
+        console.error("[App] Erro ao carregar eventos:", err);
+      } finally {
+        setLoadingEvents(false);
+      }
+    }
+
+    loadEvents();
+  }, [user]);
 
   // -----------------------------
   //   EXCEÇÕES DE RECORRÊNCIA
