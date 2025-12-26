@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { toUtcISOString, toMs } from "../lib/time.js";
+import React, { useEffect, useMemo, useState } from "react";
+import { toUtcISOString } from "../lib/time.js";
 
 const TYPES = [
   { id: "consultorio", label: "Consultório" },
@@ -7,26 +7,37 @@ const TYPES = [
   { id: "pessoal", label: "Pessoal" },
 ];
 
-function addWeeksYmd(ymd, weeks) {
-  const d = new Date(`${ymd}T00:00:00`);
-  d.setDate(d.getDate() + weeks * 7);
-  return d.toISOString().slice(0, 10);
-}
-
 const DOW_LABEL = {
-  0: "Dom",
   1: "Seg",
   2: "Ter",
   3: "Qua",
   4: "Qui",
   5: "Sex",
   6: "Sáb",
+  0: "Dom",
 };
 
-function formatBR(ymd) {
-  if (!ymd) return "";
-  const [y, m, d] = ymd.split("-");
-  return `${d}/${m}/${y}`;
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+const inputBase =
+  "w-full rounded-2xl border px-3 py-2 text-sm " +
+  "bg-white text-slate-900 placeholder:text-slate-400 border-slate-200 " +
+  "focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 " +
+  "dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500 dark:border-slate-700 " +
+  "dark:focus:ring-sky-400 dark:focus:border-sky-400 " +
+  "disabled:bg-slate-100 disabled:text-slate-400 " +
+  "dark:disabled:bg-slate-800 dark:disabled:text-slate-500";
+
+function todayYmd() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function hmToMinutes(hm) {
+  if (!hm) return 0;
+  const [h, m] = hm.split(":").map(Number);
+  return h * 60 + m;
 }
 
 export default function EventForm({
@@ -34,224 +45,295 @@ export default function EventForm({
   onSubmit,
   onCancel,
   onDelete,
-  conflictWith,
-  onChangeCandidate,
-  isSaving = false,
-  recurrenceError = null,
+  conflictWith,        // evento em conflito (se existir)
+  onChangeCandidate,   // callback para o App calcular conflito em tempo real
 }) {
-  const today = new Date();
-  const defaultDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
-    today.getDate()
-  ).padStart(2, "0")}`;
+  // -----------------------------
+  //   ESTADO COM DEFAULTS
+  // -----------------------------
+  const [type, setType] = useState("pessoal");
+  const [date, setDate] = useState(todayYmd());
+  const [start, setStart] = useState("08:00");
+  const [end, setEnd] = useState("09:00");
+  const [location, setLocation] = useState("");
+  const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
 
-  const [type, setType] = useState(initial?.type ?? "consultorio");
-  const [date, setDate] = useState(initial?.date ?? defaultDate);
-  const [start, setStart] = useState(initial?.start ?? "08:00");
-  const [end, setEnd] = useState(initial?.end ?? "12:00");
-  const [location, setLocation] = useState(initial?.location ?? "");
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [notes, setNotes] = useState(initial?.notes ?? "");
+  // campos de cirurgia
+  const [value, setValue] = useState("");
+  const [payStatus, setPayStatus] = useState("a_receber");
 
-  const [value, setValue] = useState(initial?.value ?? "");
-  const [payStatus, setPayStatus] = useState(initial?.payStatus ?? "a_receber");
+  // recorrência semanal (apenas consultório)
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState("");
+  const [weekdays, setWeekdays] = useState([]);
 
-  const [repeatWeekly, setRepeatWeekly] = useState(initial?.repeatWeekly ?? false);
-  const [weekdays, setWeekdays] = useState(initial?.weekdays ?? []);
-  const [untilDate, setUntilDate] = useState(initial?.untilDate ?? "");
-
-  const weekdaysRef = useRef(null);
-  const untilRef = useRef(null);
-
+  // -----------------------------
+  //   CARREGAR DADOS QUANDO FOR EDIÇÃO
+  //   (só roda quando muda o initial.id)
+  // -----------------------------
   useEffect(() => {
-    if (!repeatWeekly) return;
-    setUntilDate((prev) => (prev ? prev : addWeeksYmd(date, 12)));
+    if (!initial) return;
 
-    // ✅ UX: leva o foco para o bloco de dias
-    setTimeout(() => {
-      weekdaysRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-    }, 0);
-  }, [repeatWeekly, date]);
+    setType(initial.type || "pessoal");
+    setDate(initial.date || todayYmd());
+    setStart(initial.start || "08:00");
+    setEnd(initial.end || "09:00");
+    setLocation(initial.location || "");
+    setTitle(initial.title || "");
+    setNotes(initial.notes || "");
 
-  const candidate = useMemo(() => {
-    return {
-      type,
+    setValue(
+      initial.value !== undefined && initial.value !== null
+        ? String(initial.value)
+        : ""
+    );
+    setPayStatus(initial.payStatus || "a_receber");
+    setRepeatWeekly(initial.repeatWeekly || false);
+    setRepeatUntil(initial.repeatUntil || "");
+    setWeekdays(initial.weekdays || []);
+  }, [initial && initial.id]);
+
+  const resolvedType = type || "pessoal";
+
+  // -----------------------------
+  //   CANDIDATE PARA CONFLITO (startISO/endISO)
+  // -----------------------------
+  const candidate = useMemo(
+    () => ({
       startISO: toUtcISOString(date, start),
       endISO: toUtcISOString(date, end),
-    };
-  }, [type, date, start, end]);
+      id: initial?.id ?? null,
+    }),
+    [date, start, end, initial?.id]
+  );
 
+  // Notifica o App sempre que data/hora mudarem
   useEffect(() => {
-    if (isSaving) return;
-    onChangeCandidate?.(candidate);
-  }, [candidate, onChangeCandidate, isSaving]);
+    if (!onChangeCandidate) return;
+    onChangeCandidate(candidate);
+  }, [candidate, onChangeCandidate]);
 
-  const invalidTime = toMs(candidate.startISO) >= toMs(candidate.endISO);
-  const invalidUntil = repeatWeekly && untilDate && String(untilDate) < String(date);
-  const missingWeekdays = repeatWeekly && type === "consultorio" && weekdays.length === 0;
+  // -----------------------------
+  //   VALIDAÇÕES
+  // -----------------------------
+  const invalidTime = useMemo(() => {
+    if (!start || !end) return false;
+    return hmToMinutes(start) >= hmToMinutes(end);
+  }, [start, end]);
 
+  const missingUntil = useMemo(() => {
+    // se marcou "repetir semanalmente" precisa escolher uma data
+    return repeatWeekly && !repeatUntil;
+  }, [repeatWeekly, repeatUntil]);
+
+  const invalidUntil = useMemo(() => {
+    // se não é recorrente ou não tem data ainda, não invalida aqui
+    if (!repeatWeekly || !repeatUntil) return false;
+    // não pode ser no mesmo dia nem antes → precisa ser DEPOIS da data inicial
+    return repeatUntil <= date;
+  }, [repeatWeekly, repeatUntil, date]);
+
+  const missingWeekdays = useMemo(() => {
+    if (!repeatWeekly) return false;
+    return weekdays.length === 0;
+  }, [repeatWeekly, weekdays]);
+
+  // -----------------------------
+  //   HANDLERS
+  // -----------------------------
   function toggleWeekday(dow) {
-    setWeekdays((prev) => (prev.includes(dow) ? prev.filter((x) => x !== dow) : [...prev, dow].sort()));
+    setWeekdays((prev) =>
+      prev.includes(dow) ? prev.filter((d) => d !== dow) : [...prev, dow]
+    );
   }
-
-  const recurrenceSummary = useMemo(() => {
-    if (!(type === "consultorio" && repeatWeekly)) return null;
-    const days = weekdays.map((d) => DOW_LABEL[d]).join(", ");
-    return days && untilDate ? `${days} até ${formatBR(untilDate)}` : days || null;
-  }, [type, repeatWeekly, weekdays, untilDate]);
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (isSaving) return;
 
-    if (invalidTime) return;
-    if (invalidUntil) return;
-    if (conflictWith) return;
-    if (missingWeekdays) return;
+    if (invalidTime || invalidUntil || missingWeekdays || missingUntil) return;
 
-    onSubmit({
-      type,
-      startISO: candidate.startISO,
-      endISO: candidate.endISO,
-      location: location.trim(),
-      title:
-        title.trim() ||
-        (type === "cirurgia" ? "Cirurgia" : type === "consultorio" ? "Consultório" : "Pessoal"),
-      notes: notes.trim(),
+    const baseTitle =
+      title.trim() ||
+      (resolvedType === "cirurgia"
+        ? "Cirurgia"
+        : resolvedType === "consultorio"
+        ? "Consultório"
+        : "Pessoal");
+
+    const startISO = toUtcISOString(date, start);
+    const endISO = toUtcISOString(date, end);
+
+    const result = {
+      type: resolvedType,
+      startISO,
+      endISO,
+      title: baseTitle,
+      location: location.trim() || "",
+      notes: notes.trim() || "",
       surgery:
-        type === "cirurgia"
+        resolvedType === "cirurgia"
           ? {
-              value: Number(String(value).replace(",", ".")) || 0,
+              value:
+                Number(
+                  String(value).replace(",", ".").replace(" ", "")
+                ) || 0,
               payStatus,
+              title: baseTitle,
             }
           : null,
       recurrence:
-        type === "consultorio" && repeatWeekly
+        resolvedType === "consultorio" && repeatWeekly
           ? {
               kind: "weekly",
-              weekdays,
-              untilDate: untilDate || addWeeksYmd(date, 12),
-              startTime: start,
-              endTime: end,
-              startDate: date,
+              // dias da semana marcados (0–6)
+              weekdays: weekdays.slice(),
+              // data final da recorrência no formato YYYY-MM-DD
+              untilDate: repeatUntil || date,
             }
           : null,
-    });
+    };
+
+    if (onSubmit) onSubmit(result);
   }
 
+  // -----------------------------
+  //   RENDER
+  // -----------------------------
   return (
-    <form className="space-y-3" onSubmit={handleSubmit}>
-      {!!recurrenceError && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {recurrenceError}
+    <form className="space-y-4" onSubmit={handleSubmit}>
+      {/* AVISO DE CONFLITO DE HORÁRIO */}
+      {conflictWith && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/50 dark:bg-red-900/30 dark:text-red-200">
+          Conflito com <strong>{conflictWith.title}</strong> nesse horário.
         </div>
       )}
 
-      {!isSaving && conflictWith && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          Conflito com <b>{conflictWith.title}</b> nesse horário.
-        </div>
-      )}
+      {/* TIPOS */}
+      <div className="flex gap-2 rounded-2xl bg-slate-100 p-1 dark:bg-slate-900">
+        {TYPES.map((t) => {
+          const active = resolvedType === t.id;
 
-      {invalidTime && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          Horário inválido.
-        </div>
-      )}
-
-      {invalidUntil && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          A data <b>Até</b> precisa ser igual ou maior que a data inicial.
-        </div>
-      )}
-
-      {missingWeekdays && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          Selecione pelo menos <b>1 dia</b> para a recorrência.
-        </div>
-      )}
-
-      {!!recurrenceSummary && (
-        <div className="rounded-xl border border-slate-200 bg-white/70 p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200">
-          Recorrência: <b>{recurrenceSummary}</b>
-        </div>
-      )}
-
-      <div className="flex gap-2">
-        {TYPES.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            disabled={isSaving}
-            onClick={() => {
-              setType(t.id);
-              if (t.id !== "consultorio") setRepeatWeekly(false);
-            }}
-            className={`flex-1 rounded-xl border px-3 py-2 text-sm ${
-              type === t.id ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200"
-            } ${isSaving ? "opacity-60" : ""}`}
-          >
-            {t.label}
-          </button>
-        ))}
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setType(t.id)}
+              className={
+                "flex-1 rounded-2xl px-3 py-2 text-sm font-medium transition " +
+                (active
+                  ? "border border-sky-500 bg-sky-500 text-white shadow-sm"
+                  : "border border-transparent text-slate-700 hover:bg-slate-200 " +
+                    "dark:text-slate-200 dark:hover:bg-slate-800")
+              }
+            >
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      {/* DATA + LOCAL */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+            Data
+          </label>
+          <input
+            type="date"
+            className={inputBase}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            required
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+            Local
+          </label>
+          <input
+            type="text"
+            className={inputBase}
+            placeholder="Local"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* HORÁRIOS */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+            Início
+          </label>
+          <input
+            type="time"
+            className={inputBase}
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            required
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+            Fim
+          </label>
+          <input
+            type="time"
+            className={inputBase}
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            required
+          />
+          {invalidTime && (
+            <p className="mt-1 text-xs text-red-400">
+              O horário final deve ser maior que o inicial.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* TÍTULO */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+          Título (opcional)
+        </label>
         <input
-          type="date"
-          value={date}
-          disabled={isSaving}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-xl border px-3 py-2"
-        />
-        <input
-          placeholder="Local"
-          value={location}
-          disabled={isSaving}
-          onChange={(e) => setLocation(e.target.value)}
-          className="rounded-xl border px-3 py-2"
+          type="text"
+          className={inputBase}
+          placeholder="Título"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <input
-          type="time"
-          value={start}
-          disabled={isSaving}
-          onChange={(e) => setStart(e.target.value)}
-          className="rounded-xl border px-3 py-2"
-        />
-        <input
-          type="time"
-          value={end}
-          disabled={isSaving}
-          onChange={(e) => setEnd(e.target.value)}
-          className="rounded-xl border px-3 py-2"
-        />
-      </div>
-
-      <input
-        placeholder="Título (opcional)"
-        value={title}
-        disabled={isSaving}
-        onChange={(e) => setTitle(e.target.value)}
-        className="w-full rounded-xl border px-3 py-2"
-      />
-
-      {type === "cirurgia" && (
-        <div className="rounded-2xl border p-3">
-          <div className="grid grid-cols-2 gap-2">
+      {/* CAMPOS DE CIRURGIA */}
+      {resolvedType === "cirurgia" && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+              Valor (R$)
+            </label>
             <input
-              placeholder="Valor"
+              type="text"
+              className={inputBase}
+              placeholder="0,00"
               value={value}
-              disabled={isSaving}
               onChange={(e) => setValue(e.target.value)}
-              className="rounded-xl border px-3 py-2"
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+              Status pagamento
+            </label>
             <select
+              className={inputBase}
               value={payStatus}
-              disabled={isSaving}
               onChange={(e) => setPayStatus(e.target.value)}
-              className="rounded-xl border px-3 py-2"
             >
               <option value="a_receber">A receber</option>
               <option value="recebido">Recebido</option>
@@ -260,75 +342,99 @@ export default function EventForm({
         </div>
       )}
 
-      {type === "consultorio" && (
-        <div className="rounded-2xl border p-3">
-          <label className="flex items-center gap-2 text-sm">
+      {/* RECORRÊNCIA (apenas consultório) */}
+      {resolvedType === "consultorio" && (
+        <div className="rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
             <input
               type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
               checked={repeatWeekly}
-              disabled={isSaving}
               onChange={(e) => setRepeatWeekly(e.target.checked)}
             />
             Repetir semanalmente
           </label>
 
           {repeatWeekly && (
-            <>
-              <div ref={weekdaysRef} className="mt-2 flex flex-wrap gap-2">
-                {[
-                  ["Dom", 0],
-                  ["Seg", 1],
-                  ["Ter", 2],
-                  ["Qua", 3],
-                  ["Qui", 4],
-                  ["Sex", 5],
-                  ["Sáb", 6],
-                ].map(([l, d]) => (
-                  <button
-                    key={d}
-                    type="button"
-                    disabled={isSaving}
-                    onClick={() => toggleWeekday(d)}
-                    className={`rounded-xl border px-3 py-1 text-sm ${
-                      weekdays.includes(d) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-200"
-                    } ${isSaving ? "opacity-60" : ""}`}
-                  >
-                    {l}
-                  </button>
-                ))}
+            <div className="mt-3 space-y-3">
+              <div>
+                <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Dias da semana
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {WEEK_ORDER.map((dow) => (
+                    <button
+                      key={dow}
+                      type="button"
+                      onClick={() => toggleWeekday(dow)}
+                      className={
+                        "rounded-full px-3 py-1 text-xs font-medium transition " +
+                        (weekdays.includes(dow)
+                          ? "bg-sky-500 text-white"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200 " +
+                            "dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700")
+                      }
+                    >
+                      {DOW_LABEL[dow]}
+                    </button>
+                  ))}
+                </div>
+                {missingWeekdays && (
+                  <p className="mt-1 text-xs text-red-400">
+                    Selecione pelo menos um dia da semana.
+                  </p>
+                )}
               </div>
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Repetir até
+                </label>
                 <input
-                  ref={untilRef}
                   type="date"
-                  value={untilDate}
-                  disabled={isSaving}
-                  onChange={(e) => setUntilDate(e.target.value)}
-                  className="rounded-xl border px-3 py-2"
+                  className={inputBase}
+                  value={repeatUntil}
+                  onChange={(e) => setRepeatUntil(e.target.value)}
                 />
-                <div className="text-xs text-slate-500 self-center">Até</div>
+                {missingUntil && (
+                  <p className="mt-1 text-xs text-red-400">
+                    Escolha uma data final para a recorrência.
+                  </p>
+                )}
+                {!missingUntil && invalidUntil && (
+                  <p className="mt-1 text-xs text-red-400">
+                    A data final deve ser posterior à data inicial.
+                  </p>
+                )}
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
 
-      <textarea
-        placeholder="Notas (opcional)"
-        value={notes}
-        disabled={isSaving}
-        onChange={(e) => setNotes(e.target.value)}
-        className="w-full rounded-xl border px-3 py-2"
-        rows={3}
-      />
+      {/* NOTAS */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+          Notas (opcional)
+        </label>
+        <textarea
+          className={`${inputBase} min-h-[100px] resize-y`}
+          placeholder="Notas, observações..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
 
-      <div className="flex gap-2 pt-2">
+      {/* AÇÕES */}
+      <div className="mt-4 flex gap-2">
         <button
           type="button"
           onClick={onCancel}
-          disabled={isSaving}
-          className="flex-1 rounded-xl border border-slate-200 px-4 py-2 dark:border-slate-800 disabled:opacity-60"
+          className="
+            flex-1 rounded-2xl border px-4 py-2 text-sm font-medium
+            border-slate-300 text-slate-700 hover:bg-slate-100
+            dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-800
+          "
         >
           Cancelar
         </button>
@@ -337,8 +443,7 @@ export default function EventForm({
           <button
             type="button"
             onClick={onDelete}
-            disabled={isSaving}
-            className="rounded-xl border border-red-200 px-4 py-2 text-red-700 disabled:opacity-60"
+            className="flex-1 rounded-2xl border border-red-500 bg-transparent px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-500/10"
           >
             Excluir
           </button>
@@ -346,10 +451,10 @@ export default function EventForm({
 
         <button
           type="submit"
-          disabled={isSaving || invalidTime || invalidUntil || (!!conflictWith && !isSaving) || missingWeekdays}
-          className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-white disabled:opacity-60"
+          disabled={invalidTime || invalidUntil || missingWeekdays || missingUntil}
+          className="flex-1 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSaving ? "Salvando..." : "Salvar"}
+          Salvar
         </button>
       </div>
     </form>

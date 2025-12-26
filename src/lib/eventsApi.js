@@ -17,8 +17,8 @@ function mapRow(r) {
     endISO: r.end_iso,
     surgery: r.surgery,
     recurrenceId: r.recurrence_id,
-    recurrence: r.recurrence ?? null,
-    isException: !!r.is_exception,
+    recurrence: r.recurrence,
+    isException: r.is_exception,
   };
 }
 
@@ -84,34 +84,71 @@ export async function createEventsBulk(events) {
 
   if (!payload.length) return [];
 
-  const { data, error } = await supabase.from("events").insert(payload).select("*");
-  if (error) throw error;
+  const { data, error } = await supabase
+    .from("events")
+    .insert(payload)
+    .select("*");
 
+  if (error) throw error;
   return (data || []).map(mapRow);
+}
+
+/**
+ * Restaurar backup completo:
+ * - apaga todos os eventos do usuário atual
+ * - reimporta os eventos do arquivo de backup
+ */
+export async function restoreBackupEvents(events) {
+  const user = await getSessionUser();
+  if (!user) throw new Error("Não autenticado");
+
+  // 1) Apaga tudo do usuário
+  const { error: delError } = await supabase
+    .from("events")
+    .delete()
+    .eq("user_id", user.id);
+
+  if (delError) {
+    console.error("Erro ao apagar eventos antes de restaurar backup:", delError);
+    throw delError;
+  }
+
+  // 2) Se o backup vier vazio, nada a inserir
+  if (!events || !events.length) {
+    return [];
+  }
+
+  // 3) Reinsere usando a mesma lógica de bulk
+  return await createEventsBulk(events);
 }
 
 export async function updateEvent(id, ev) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
 
-  const { error } = await supabase
+  const payload = {
+    type: ev.type,
+    title: ev.title ?? null,
+    location: ev.location ?? null,
+    notes: ev.notes ?? null,
+    start_iso: ev.startISO,
+    end_iso: ev.endISO,
+    surgery: ev.surgery ?? null,
+    recurrence_id: ev.recurrenceId ?? null,
+    recurrence: ev.recurrence ?? null,
+    is_exception: !!ev.isException,
+  };
+
+  const { data, error } = await supabase
     .from("events")
-    .update({
-      type: ev.type,
-      title: ev.title ?? null,
-      location: ev.location ?? null,
-      notes: ev.notes ?? null,
-      start_iso: ev.startISO,
-      end_iso: ev.endISO,
-      surgery: ev.surgery ?? null,
-      recurrence_id: ev.recurrenceId ?? null,
-      recurrence: ev.recurrence ?? null,
-      is_exception: !!ev.isException,
-    })
+    .update(payload)
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("*")
+    .single();
 
   if (error) throw error;
+  return mapRow(data);
 }
 
 export async function deleteEvent(id) {
