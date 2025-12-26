@@ -95,12 +95,19 @@ function App() {
     async function loadUser() {
       try {
         setAuthLoading(true);
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
-        if (error) throw error;
-        setUser(user ?? null);
+        const { data, error } = await supabase.auth.getUser();
+
+        if (error) {
+          // Sessão simplesmente não existe → trata como deslogado, sem drama
+          if (error.name === "AuthSessionMissingError") {
+            setUser(null);
+            return;
+          }
+
+          throw error;
+        }
+
+        setUser(data?.user ?? null);
       } catch (err) {
         console.error("Erro ao carregar usuário:", err);
         setUser(null);
