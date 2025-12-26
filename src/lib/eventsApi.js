@@ -23,74 +23,77 @@ function mapRow(r) {
 }
 
 export async function fetchEvents() {
-  const user = await getSessionUser();
+  const session = await supabase.auth.getSession();
+  const user = session.data?.session?.user;
+
   if (!user) return [];
 
   const { data, error } = await supabase
     .from("events")
     .select("*")
     .eq("user_id", user.id)
-    .order("start_iso", { ascending: true });
+    .order("startISO", { ascending: true });
 
-  if (error) throw error;
-  return (data || []).map(mapRow);
+  if (error) {
+    console.error("Erro ao buscar eventos:", error);
+    throw error;
+  }
+
+  return data;
 }
 
-export async function createEvent(ev) {
-  const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticado");
 
-  const payload = {
+export async function createEvent(event) {
+  const session = await supabase.auth.getSession();
+  const user = session.data?.session?.user;
+
+  if (!user) {
+    throw new Error("Usuário não autenticado ao criar evento");
+  }
+
+  const full = {
+    ...event,
     user_id: user.id,
-    type: ev.type,
-    title: ev.title ?? null,
-    location: ev.location ?? null,
-    notes: ev.notes ?? null,
-    start_iso: ev.startISO,
-    end_iso: ev.endISO,
-    surgery: ev.surgery ?? null,
-    recurrence_id: ev.recurrenceId ?? null,
-    recurrence: ev.recurrence ?? null,
-    is_exception: !!ev.isException,
   };
 
   const { data, error } = await supabase
     .from("events")
-    .insert(payload)
-    .select("*")
+    .insert(full)
+    .select()
     .single();
 
-  if (error) throw error;
-  return mapRow(data);
+  if (error) {
+    console.error("Erro ao criar evento:", error);
+    throw error;
+  }
+
+  return data;
 }
 
-export async function createEventsBulk(events) {
-  const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticado");
+export async function createEventsBulk(list) {
+  const session = await supabase.auth.getSession();
+  const user = session.data?.session?.user;
 
-  const payload = (events || []).map((ev) => ({
+  if (!user) {
+    throw new Error("Usuário não autenticado ao criar eventos");
+  }
+
+  const final = list.map(ev => ({
+    ...ev,
     user_id: user.id,
-    type: ev.type,
-    title: ev.title ?? null,
-    location: ev.location ?? null,
-    notes: ev.notes ?? null,
-    start_iso: ev.startISO,
-    end_iso: ev.endISO,
-    surgery: ev.surgery ?? null,
-    recurrence_id: ev.recurrenceId ?? null,
-    recurrence: ev.recurrence ?? null,
-    is_exception: !!ev.isException,
   }));
-
-  if (!payload.length) return [];
 
   const { data, error } = await supabase
     .from("events")
-    .insert(payload)
-    .select("*");
+    .insert(final)
+    .select();
 
-  if (error) throw error;
-  return (data || []).map(mapRow);
+  if (error) {
+    console.error("Erro ao criar eventos recorrentes:", error);
+    throw error;
+  }
+
+  return data;
 }
 
 /**
