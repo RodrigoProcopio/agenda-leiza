@@ -92,80 +92,59 @@ function App() {
   //   AUTENTICAÇÃO
   // -----------------------------
   useEffect(() => {
+    let isMounted = true;
+
     async function loadUser() {
       try {
         setAuthLoading(true);
         const { data, error } = await supabase.auth.getUser();
 
         if (error) {
-          // Sessão simplesmente não existe → trata como deslogado, sem drama
+          // Sessão simplesmente não existe → trata como deslogado
           if (error.name === "AuthSessionMissingError") {
-            setUser(null);
+            if (isMounted) setUser(null);
             return;
           }
 
           throw error;
         }
 
-        setUser(data?.user ?? null);
+        if (isMounted) {
+          setUser(data?.user ?? null);
+        }
       } catch (err) {
         console.error("Erro ao carregar usuário:", err);
-        setUser(null);
+        if (isMounted) setUser(null);
       } finally {
-        setAuthLoading(false);
+        if (isMounted) setAuthLoading(false);
       }
     }
 
+    // 1) Carrega sessão já existente (ex: depois de dar refresh)
     loadUser();
+
+    // 2) Escuta qualquer mudança de autenticação (login, logout, refresh)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+      // Se logar, `session.user` vem preenchido; se deslogar, vem null
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
-  useEffect(() => {
-    if (!user) {
-      setEvents([]);
-      return;
-    }
-
-    async function loadEvents() {
-      try {
-        setLoadingEvents(true);
-        const data = await fetchEvents();
-        setEvents(data || []);
-      } catch (err) {
-        console.error("Erro ao carregar eventos:", err);
-      } finally {
-        setLoadingEvents(false);
-      }
-    }
-
-    loadEvents();
-  }, [user]);
-
+  // Depois de usar o listener, o handleLoginSuccess pode ser bem simples:
   async function handleLoginSuccess() {
-    try {
-      setAuthLoading(true);
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
-      if (error) throw error;
-      setUser(user ?? null);
-    } catch (err) {
-      console.error("Erro após login:", err);
-      setUser(null);
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
-  async function handleLogout() {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error("Erro ao fazer logout:", err);
-    } finally {
-      setUser(null);
-      setEvents([]);
-    }
+    // O Login vai chamar isso só em caso de sucesso.
+    // O onAuthStateChange já vai atualizar o `user`,
+    // aqui a gente só liga o "Carregando…" até o evento chegar.
+    setAuthLoading(true);
   }
 
   // -----------------------------
