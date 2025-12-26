@@ -38,7 +38,7 @@ export async function fetchEvents() {
     .from("events")
     .select("*")
     .eq("user_id", user.id)
-    // 👇 ordena pela coluna real do banco
+    // 👇 coluna real da tabela
     .order("start_iso", { ascending: true });
 
   if (error) {
@@ -46,7 +46,7 @@ export async function fetchEvents() {
     throw error;
   }
 
-  // 👇 agora converte tudo pra startISO/endISO
+  // 👇 agora o App recebe sempre startISO/endISO
   return (data || []).map(mapRow);
 }
 
@@ -61,8 +61,7 @@ export async function createEvent(event) {
     throw new Error("Usuário não autenticado ao criar evento");
   }
 
-  // 👇 monta payload no formato da TABELA (snake_case)
-  const full = {
+  const payload = {
     user_id: user.id,
     type: event.type,
     title: event.title ?? null,
@@ -78,8 +77,8 @@ export async function createEvent(event) {
 
   const { data, error } = await supabase
     .from("events")
-    .insert(full)
-    .select()
+    .insert(payload)
+    .select("*")
     .single();
 
   if (error) {
@@ -87,7 +86,6 @@ export async function createEvent(event) {
     throw error;
   }
 
-  // devolve no formato que o app espera
   return mapRow(data);
 }
 
@@ -102,7 +100,6 @@ export async function createEventsBulk(list) {
     throw new Error("Usuário não autenticado ao criar eventos");
   }
 
-  // 👇 converte cada item para o formato da tabela
   const final = (list || []).map((ev) => ({
     user_id: user.id,
     type: ev.type,
@@ -122,7 +119,7 @@ export async function createEventsBulk(list) {
   const { data, error } = await supabase
     .from("events")
     .insert(final)
-    .select();
+    .select("*");
 
   if (error) {
     console.error("Erro ao criar eventos recorrentes:", error);
@@ -136,11 +133,14 @@ export async function createEventsBulk(list) {
  * Restaurar backup completo:
  * - apaga todos os eventos do usuário atual
  * - reimporta os eventos do arquivo de backup
+ *
+ * Aceita backup tanto em camelCase (startISO) quanto snake_case (start_iso)
  */
 export async function restoreBackupEvents(events) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
 
+  // 1) Apaga tudo do usuário
   const { error: delError } = await supabase
     .from("events")
     .delete()
@@ -155,8 +155,23 @@ export async function restoreBackupEvents(events) {
     return [];
   }
 
-  // `events` vem em camelCase, o createEventsBulk já converte
-  return await createEventsBulk(events);
+  // 2) Normaliza o backup para o formato camelCase que o createEventsBulk usa
+  const normalized = events.map((ev) => ({
+    id: ev.id,
+    type: ev.type,
+    title: ev.title ?? null,
+    location: ev.location ?? null,
+    notes: ev.notes ?? null,
+    startISO: ev.startISO ?? ev.start_iso,
+    endISO: ev.endISO ?? ev.end_iso,
+    surgery: ev.surgery ?? null,
+    recurrenceId: ev.recurrenceId ?? ev.recurrence_id ?? null,
+    recurrence: ev.recurrence ?? null,
+    isException: ev.isException ?? ev.is_exception ?? false,
+  }));
+
+  // 3) Reinsere (createEventsBulk já seta user_id = auth user)
+  return await createEventsBulk(normalized);
 }
 
 /**
@@ -187,7 +202,11 @@ export async function updateEvent(id, ev) {
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("Erro ao atualizar evento:", error);
+    throw error;
+  }
+
   return mapRow(data);
 }
 
@@ -212,7 +231,7 @@ export async function deleteEvent(id) {
  */
 export async function deleteEventsByRecurrence(recurrenceId) {
   const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticado");
+  if (!user) throw new Error("Não autenticicado");
 
   const { error } = await supabase
     .from("events")
