@@ -92,59 +92,42 @@ function App() {
   //   AUTENTICAÇÃO
   // -----------------------------
   useEffect(() => {
-    let isMounted = true;
-
     async function loadUser() {
       try {
         setAuthLoading(true);
         const { data, error } = await supabase.auth.getUser();
 
         if (error) {
-          // Sessão simplesmente não existe → trata como deslogado
-          if (error.name === "AuthSessionMissingError") {
-            if (isMounted) setUser(null);
-            return;
-          }
-
-          throw error;
-        }
-
-        if (isMounted) {
+          console.error("Erro ao carregar usuário:", error);
+          setUser(null);
+        } else {
           setUser(data?.user ?? null);
         }
       } catch (err) {
         console.error("Erro ao carregar usuário:", err);
-        if (isMounted) setUser(null);
+        setUser(null);
       } finally {
-        if (isMounted) setAuthLoading(false);
+        setAuthLoading(false);
       }
     }
 
-    // 1) Carrega sessão já existente (ex: depois de dar refresh)
     loadUser();
-
-    // 2) Escuta qualquer mudança de autenticação (login, logout, refresh)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!isMounted) return;
-      // Se logar, `session.user` vem preenchido; se deslogar, vem null
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription?.unsubscribe();
-    };
   }, []);
 
-  // Depois de usar o listener, o handleLoginSuccess pode ser bem simples:
-  async function handleLoginSuccess() {
-    // O Login vai chamar isso só em caso de sucesso.
-    // O onAuthStateChange já vai atualizar o `user`,
-    // aqui a gente só liga o "Carregando…" até o evento chegar.
-    setAuthLoading(true);
+  // 👉 Recebe o usuário retornado pelo Login.jsx
+  function handleLoginSuccess(userFromLogin) {
+    setUser(userFromLogin ?? null);
+  }
+
+  async function handleLogout() {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error("Erro ao fazer logout:", err);
+    } finally {
+      setUser(null);
+      setEvents([]);
+    }
   }
 
   // -----------------------------
