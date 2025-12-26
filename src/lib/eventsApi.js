@@ -1,12 +1,20 @@
 import { supabase } from "./supabase";
 
+/**
+ * Pega usuário logado
+ */
 export async function getSessionUser() {
   const { data, error } = await supabase.auth.getUser();
   if (error) throw error;
   return data?.user ?? null;
 }
 
+/**
+ * Converte linha do banco (snake_case) para objeto usado no app (camelCase)
+ */
 function mapRow(r) {
+  if (!r) return null;
+
   return {
     id: r.id,
     type: r.type,
@@ -22,44 +30,54 @@ function mapRow(r) {
   };
 }
 
+/**
+ * Busca eventos do usuário atual
+ */
 export async function fetchEvents() {
-  const session = await supabase.auth.getSession();
-  const user = session.data?.session?.user;
-
+  const user = await getSessionUser();
   if (!user) return [];
 
   const { data, error } = await supabase
     .from("events")
     .select("*")
     .eq("user_id", user.id)
-    .order("startISO", { ascending: true });
+    .order("start_iso", { ascending: true });
 
   if (error) {
     console.error("Erro ao buscar eventos:", error);
     throw error;
   }
 
-  return data;
+  return (data || []).map(mapRow).filter(Boolean);
 }
 
-
+/**
+ * Cria um evento simples
+ */
 export async function createEvent(event) {
-  const session = await supabase.auth.getSession();
-  const user = session.data?.session?.user;
-
+  const user = await getSessionUser();
   if (!user) {
     throw new Error("Usuário não autenticado ao criar evento");
   }
 
-  const full = {
-    ...event,
+  const payload = {
     user_id: user.id,
+    type: event.type,
+    title: event.title ?? null,
+    location: event.location ?? null,
+    notes: event.notes ?? null,
+    start_iso: event.startISO,
+    end_iso: event.endISO,
+    surgery: event.surgery ?? null,
+    recurrence_id: event.recurrenceId ?? null,
+    recurrence: event.recurrence ?? null,
+    is_exception: !!event.isException,
   };
 
   const { data, error } = await supabase
     .from("events")
-    .insert(full)
-    .select()
+    .insert(payload)
+    .select("*")
     .single();
 
   if (error) {
@@ -67,33 +85,45 @@ export async function createEvent(event) {
     throw error;
   }
 
-  return data;
+  return mapRow(data);
 }
 
+/**
+ * Cria vários eventos (recorrência)
+ */
 export async function createEventsBulk(list) {
-  const session = await supabase.auth.getSession();
-  const user = session.data?.session?.user;
-
+  const user = await getSessionUser();
   if (!user) {
     throw new Error("Usuário não autenticado ao criar eventos");
   }
 
-  const final = list.map(ev => ({
-    ...ev,
+  const payload = (list || []).map((ev) => ({
     user_id: user.id,
+    type: ev.type,
+    title: ev.title ?? null,
+    location: ev.location ?? null,
+    notes: ev.notes ?? null,
+    start_iso: ev.startISO,
+    end_iso: ev.endISO,
+    surgery: ev.surgery ?? null,
+    recurrence_id: ev.recurrenceId ?? null,
+    recurrence: ev.recurrence ?? null,
+    is_exception: !!ev.isException,
   }));
+
+  if (!payload.length) return [];
 
   const { data, error } = await supabase
     .from("events")
-    .insert(final)
-    .select();
+    .insert(payload)
+    .select("*");
 
   if (error) {
     console.error("Erro ao criar eventos recorrentes:", error);
     throw error;
   }
 
-  return data;
+  return (data || []).map(mapRow).filter(Boolean);
 }
 
 /**
@@ -121,10 +151,13 @@ export async function restoreBackupEvents(events) {
     return [];
   }
 
-  // 3) Reinsere usando a mesma lógica de bulk
+  // 3) Reinsere usando a mesma lógica de bulk (espera formato camelCase)
   return await createEventsBulk(events);
 }
 
+/**
+ * Atualiza um evento
+ */
 export async function updateEvent(id, ev) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
@@ -150,10 +183,17 @@ export async function updateEvent(id, ev) {
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("Erro ao atualizar evento:", error);
+    throw error;
+  }
+
   return mapRow(data);
 }
 
+/**
+ * Deleta um evento
+ */
 export async function deleteEvent(id) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
@@ -164,14 +204,19 @@ export async function deleteEvent(id) {
     .eq("id", id)
     .eq("user_id", user.id);
 
-  if (error) throw error;
+  if (error) {
+    console.error("Erro ao deletar evento:", error);
+    throw error;
+  }
 }
 
+/**
+ * Deleta todos os eventos de uma recorrência (exceto exceções)
+ */
 export async function deleteEventsByRecurrence(recurrenceId) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
 
-  // não apaga exceções
   const { error } = await supabase
     .from("events")
     .delete()
@@ -179,5 +224,8 @@ export async function deleteEventsByRecurrence(recurrenceId) {
     .eq("user_id", user.id)
     .eq("is_exception", false);
 
-  if (error) throw error;
+  if (error) {
+    console.error("Erro ao deletar recorrência:", error);
+    throw error;
+  }
 }
