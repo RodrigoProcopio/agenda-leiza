@@ -22,29 +22,25 @@ function mapRow(r) {
     recurrenceId: r.recurrence_id,
     recurrence: r.recurrence,
     isException: r.is_exception,
+    patientId: r.patient_id ?? null,
   };
 }
 
 /**
- * Buscar eventos do usuário atual
+ * Buscar eventos da prática (ownerId = id do médico dono da agenda).
+ * Usa a view events_secure, que esconde o campo "surgery" de quem não tem
+ * permissão financeira (RLS/redação acontece no banco, não no cliente).
  */
-export async function fetchEvents() {
-  const session = await supabase.auth.getSession();
-  const user = session.data?.session?.user;
-
-  if (import.meta.env.DEV) console.log("[fetchEvents] session user:", user);
-
-  // Se não tiver usuário, já avisa no console e retorna vazio
-  if (!user) {
-    console.warn("[fetchEvents] Nenhum usuário logado. Retornando [].");
+export async function fetchEvents(ownerId) {
+  if (!ownerId) {
+    console.warn("[fetchEvents] Nenhum ownerId informado. Retornando [].");
     return [];
   }
 
   const { data, error } = await supabase
-    .from("events")
+    .from("events_secure")
     .select("*")
-    // 👇 se quiser testar sem filtro, comente essa linha TEMPORARIAMENTE
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .order("start_iso", { ascending: true });
 
   if (error) {
@@ -52,24 +48,17 @@ export async function fetchEvents() {
     throw error;
   }
 
-  if (import.meta.env.DEV) console.log("[fetchEvents] Linhas recebidas do Supabase:", data);
-
   return (data || []).map(mapRow);
 }
 
 /**
  * Criar 1 evento
  */
-export async function createEvent(event) {
-  const session = await supabase.auth.getSession();
-  const user = session.data?.session?.user;
-
-  if (!user) {
-    throw new Error("Usuário não autenticado ao criar evento");
-  }
+export async function createEvent(ownerId, event) {
+  if (!ownerId) throw new Error("ownerId é obrigatório para criar evento");
 
   const payload = {
-    user_id: user.id,
+    user_id: ownerId,
     type: event.type,
     title: event.title ?? null,
     location: event.location ?? null,
@@ -80,6 +69,7 @@ export async function createEvent(event) {
     recurrence_id: event.recurrenceId ?? null,
     recurrence: event.recurrence ?? null,
     is_exception: !!event.isException,
+    patient_id: event.patientId ?? null,
   };
 
   const { data, error } = await supabase
@@ -99,16 +89,11 @@ export async function createEvent(event) {
 /**
  * Criar vários eventos (recorrência)
  */
-export async function createEventsBulk(list) {
-  const session = await supabase.auth.getSession();
-  const user = session.data?.session?.user;
-
-  if (!user) {
-    throw new Error("Usuário não autenticado ao criar eventos");
-  }
+export async function createEventsBulk(ownerId, list) {
+  if (!ownerId) throw new Error("ownerId é obrigatório para criar eventos");
 
   const final = (list || []).map((ev) => ({
-    user_id: user.id,
+    user_id: ownerId,
     type: ev.type,
     title: ev.title ?? null,
     location: ev.location ?? null,
@@ -119,6 +104,7 @@ export async function createEventsBulk(list) {
     recurrence_id: ev.recurrenceId ?? null,
     recurrence: ev.recurrence ?? null,
     is_exception: !!ev.isException,
+    patient_id: ev.patientId ?? null,
   }));
 
   if (!final.length) return [];
@@ -138,14 +124,13 @@ export async function createEventsBulk(list) {
 
 /**
  * Restaurar backup completo:
- * - apaga todos os eventos do usuário atual
+ * - apaga todos os eventos da prática
  * - reimporta os eventos do arquivo de backup
  *
  * Aceita backup tanto em camelCase (startISO) quanto snake_case (start_iso)
  */
-export async function restoreBackupEvents(events) {
-  const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticado");
+export async function restoreBackupEvents(ownerId, events) {
+  if (!ownerId) throw new Error("ownerId é obrigatório para restaurar backup");
 
   // 1) Normaliza e valida o backup ANTES de apagar qualquer coisa.
   //    Se o arquivo for inválido, falha aqui e nada é perdido.
@@ -161,6 +146,7 @@ export async function restoreBackupEvents(events) {
     recurrenceId: ev.recurrenceId ?? ev.recurrence_id ?? null,
     recurrence: ev.recurrence ?? null,
     isException: ev.isException ?? ev.is_exception ?? false,
+    patientId: ev.patientId ?? ev.patient_id ?? null,
   }));
 
   const invalid = normalized.some((ev) => !ev.startISO || !ev.endISO || !ev.type);
@@ -172,13 +158,13 @@ export async function restoreBackupEvents(events) {
 
   // 2) Guarda uma cópia de segurança dos eventos ATUAIS antes de apagar,
   //    para o caso de a reinserção falhar no meio do caminho.
-  const safetySnapshot = await fetchEvents();
+  const safetySnapshot = await fetchEvents(ownerId);
 
-  // 3) Apaga tudo do usuário
+  // 3) Apaga tudo da prática
   const { error: delError } = await supabase
     .from("events")
     .delete()
-    .eq("user_id", user.id);
+    .eq("user_id", ownerId);
 
   if (delError) {
     console.error("Erro ao apagar eventos antes de restaurar backup:", delError);
@@ -189,9 +175,9 @@ export async function restoreBackupEvents(events) {
     return [];
   }
 
-  // 4) Reinsere (createEventsBulk já seta user_id = auth user)
+  // 4) Reinsere
   try {
-    return await createEventsBulk(normalized);
+    return await createEventsBulk(ownerId, normalized);
   } catch (insertError) {
     console.error(
       "Erro ao reinserir eventos do backup. Tentando reverter para o estado anterior...",
@@ -201,7 +187,7 @@ export async function restoreBackupEvents(events) {
     // Tentativa de recuperação: repõe os eventos que existiam antes da restauração.
     try {
       if (safetySnapshot.length) {
-        await createEventsBulk(safetySnapshot);
+        await createEventsBulk(ownerId, safetySnapshot);
       }
       throw new Error(
         "Não foi possível restaurar o backup. Seus eventos anteriores foram recuperados e nada foi perdido."
@@ -219,9 +205,8 @@ export async function restoreBackupEvents(events) {
 /**
  * Atualizar evento
  */
-export async function updateEvent(id, ev) {
-  const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticado");
+export async function updateEvent(ownerId, id, ev) {
+  if (!ownerId) throw new Error("ownerId é obrigatório para atualizar evento");
 
   const payload = {
     type: ev.type,
@@ -234,13 +219,14 @@ export async function updateEvent(id, ev) {
     recurrence_id: ev.recurrenceId ?? null,
     recurrence: ev.recurrence ?? null,
     is_exception: !!ev.isException,
+    patient_id: ev.patientId ?? null,
   };
 
   const { data, error } = await supabase
     .from("events")
     .update(payload)
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .select("*")
     .single();
 
@@ -255,15 +241,14 @@ export async function updateEvent(id, ev) {
 /**
  * Deletar 1 evento
  */
-export async function deleteEvent(id) {
-  const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticado");
+export async function deleteEvent(ownerId, id) {
+  if (!ownerId) throw new Error("ownerId é obrigatório para deletar evento");
 
   const { error } = await supabase
     .from("events")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", ownerId);
 
   if (error) throw error;
 }
@@ -271,15 +256,14 @@ export async function deleteEvent(id) {
 /**
  * Deletar todos os eventos de uma recorrência (exceto exceções)
  */
-export async function deleteEventsByRecurrence(recurrenceId) {
-  const user = await getSessionUser();
-  if (!user) throw new Error("Não autenticicado");
+export async function deleteEventsByRecurrence(ownerId, recurrenceId) {
+  if (!ownerId) throw new Error("ownerId é obrigatório para deletar recorrência");
 
   const { error } = await supabase
     .from("events")
     .delete()
     .eq("recurrence_id", recurrenceId)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .eq("is_exception", false);
 
   if (error) throw error;

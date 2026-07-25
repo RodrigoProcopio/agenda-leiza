@@ -47,6 +47,9 @@ export default function EventForm({
   onDelete,
   conflictWith,        // evento em conflito (se existir)
   onChangeCandidate,   // callback para o App calcular conflito em tempo real
+  patients = [],
+  canViewFinance = true,
+  canEdit = true,
 }) {
   // -----------------------------
   //   ESTADO COM DEFAULTS
@@ -58,6 +61,7 @@ export default function EventForm({
   const [location, setLocation] = useState("");
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+  const [patientId, setPatientId] = useState("");
 
   // campos de cirurgia
   const [value, setValue] = useState("");
@@ -92,6 +96,7 @@ export default function EventForm({
     setRepeatWeekly(initial.repeatWeekly || false);
     setRepeatUntil(initial.repeatUntil || "");
     setWeekdays(initial.weekdays || []);
+    setPatientId(initial.patientId || "");
   }, [initial && initial.id]);
 
   const resolvedType = type || "pessoal";
@@ -171,8 +176,9 @@ export default function EventForm({
       title: baseTitle,
       location: location.trim() || "",
       notes: notes.trim() || "",
+      patientId: patientId || null,
       surgery:
-        resolvedType === "cirurgia"
+        resolvedType === "cirurgia" && canViewFinance
           ? {
               value:
                 Number(
@@ -181,6 +187,10 @@ export default function EventForm({
               payStatus,
               title: baseTitle,
             }
+          : resolvedType === "cirurgia"
+          ? initial?.value !== undefined
+            ? { value: initial.value, payStatus: initial.payStatus, title: baseTitle }
+            : null
           : null,
       recurrence:
         resolvedType === "consultorio" && repeatWeekly
@@ -202,6 +212,12 @@ export default function EventForm({
   // -----------------------------
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
+      <fieldset disabled={!canEdit} className="space-y-4 border-0 p-0 m-0">
+      {!canEdit && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          Você tem apenas permissão de visualização para esta agenda.
+        </div>
+      )}
       {/* AVISO DE CONFLITO DE HORÁRIO */}
       {conflictWith && (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/50 dark:bg-red-900/30 dark:text-red-200">
@@ -310,8 +326,27 @@ export default function EventForm({
         />
       </div>
 
+      {/* PACIENTE */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+          Paciente (opcional)
+        </label>
+        <select
+          className={inputBase}
+          value={patientId}
+          onChange={(e) => setPatientId(e.target.value)}
+        >
+          <option value="">Nenhum</option>
+          {patients.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* CAMPOS DE CIRURGIA */}
-      {resolvedType === "cirurgia" && (
+      {resolvedType === "cirurgia" && canViewFinance && (
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -340,6 +375,11 @@ export default function EventForm({
             </select>
           </div>
         </div>
+      )}
+      {resolvedType === "cirurgia" && !canViewFinance && (
+        <p className="text-xs text-slate-400">
+          Você não tem permissão para ver ou editar informações financeiras.
+        </p>
       )}
 
       {/* RECORRÊNCIA (apenas consultório) */}
@@ -439,7 +479,7 @@ export default function EventForm({
           Cancelar
         </button>
 
-        {onDelete && (
+        {onDelete && canEdit && (
           <button
             type="button"
             onClick={onDelete}
@@ -449,14 +489,17 @@ export default function EventForm({
           </button>
         )}
 
-        <button
-          type="submit"
-          disabled={invalidTime || invalidUntil || missingWeekdays || missingUntil}
-          className="flex-1 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Salvar
-        </button>
+        {canEdit && (
+          <button
+            type="submit"
+            disabled={invalidTime || invalidUntil || missingWeekdays || missingUntil}
+            className="flex-1 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Salvar
+          </button>
+        )}
       </div>
+      </fieldset>
     </form>
   );
 }

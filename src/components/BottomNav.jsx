@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function BottomNav({ tab, setTab }) {
+export default function BottomNav({ tab, setTab, showFinance = true }) {
   const item =
     "flex flex-col items-center justify-center flex-1 rounded-xl px-2 py-2 text-sm transition";
 
@@ -28,12 +28,14 @@ export default function BottomNav({ tab, setTab }) {
           Agenda
         </button>
 
-        <button
-          className={item + " " + (tab === "finance" ? active : inactive)}
-          onClick={() => setTab("finance")}
-        >
-          Financeiro
-        </button>
+        {showFinance && (
+          <button
+            className={item + " " + (tab === "finance" ? active : inactive)}
+            onClick={() => setTab("finance")}
+          >
+            Financeiro
+          </button>
+        )}
 
         <button
           className={item + " " + (tab === "settings" ? active : inactive)}

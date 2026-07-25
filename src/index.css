@@ -104,3 +104,23 @@
 .dark .fc .fc-today-button:hover {
   background-color: rgba(56, 189, 248, 0.25) !important;
 }
+
+/* ================================
+   Impressão — só mostra o recibo/impressão em foco
+   ================================ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-receipt,
+  #print-receipt * {
+    visibility: visible;
+  }
+  #print-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 24px;
+  }
+}

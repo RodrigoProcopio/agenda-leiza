@@ -31,6 +31,7 @@ export default function Agenda({ events, onOpen }) {
   const calendarRef = useRef(null);
   const [view, setView] = useState("timeGridDay");
   const [title, setTitle] = useState("");
+  const [search, setSearch] = useState("");
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -39,8 +40,20 @@ export default function Agenda({ events, onOpen }) {
     setView(isMobile ? "timeGridDay" : "timeGridWeek");
   }, [isMobile]);
 
+  const filteredEvents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return events || [];
+    return (events || []).filter((e) => {
+      const haystack = [e.title, e.location, e.notes]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [events, search]);
+
 const fcEvents = useMemo(() => {
-  return (events || []).map((e) => ({
+  return (filteredEvents || []).map((e) => ({
     id: e.id,
     title: e.title,
     // ✅ ISO do Supabase tem timezone -> Date(iso) é o certo
@@ -50,7 +63,7 @@ const fcEvents = useMemo(() => {
     borderColor: typeColor(e.type),
     extendedProps: e,
   }));
-}, [events]);
+}, [filteredEvents]);
 
   function getApi() {
     return calendarRef.current?.getApi?.();
@@ -152,6 +165,17 @@ const fcEvents = useMemo(() => {
             >
               Hoje
             </button>
+          </div>
+
+          {/* Busca */}
+          <div className="mt-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por título, local ou notas..."
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50"
+            />
           </div>
 
           {/* Linha 2: Segmentado */}

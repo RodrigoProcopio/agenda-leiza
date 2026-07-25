@@ -1,13 +1,32 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fetchEvents, restoreBackupEvents } from "../lib/eventsApi.js";
+import {
+  fetchMembers,
+  inviteMember,
+  updateMemberPermissions,
+  removeMember,
+} from "../lib/practiceApi.js";
+import {
+  createPatient,
+  updatePatient,
+  deletePatient,
+} from "../lib/patientsApi.js";
+import { useToast } from "../components/Toast.jsx";
 
 export default function Settings({
   theme,
   onToggleTheme,
   onExportFinance,
   onExportAgenda,
+  ownerId,
+  isOwner = true,
+  canEdit = true,
+  canViewFinance = true,
+  patients = [],
+  refreshPatients,
 }) {
+  const toast = useToast();
   const [backupLoading, setBackupLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
 
@@ -29,6 +48,12 @@ export default function Settings({
   const outlineBtn =
     "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800";
 
+  const dangerBtn =
+    "inline-flex items-center justify-center rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-medium text-red-600 shadow-sm hover:bg-red-50 dark:border-red-500/30 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-500/10";
+
+  const inputBase =
+    "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50";
+
   const pillToggle =
     "inline-flex items-center rounded-full border border-slate-300 bg-slate-100 p-0.5 text-xs shadow-inner dark:border-slate-700 dark:bg-slate-800";
 
@@ -48,7 +73,7 @@ export default function Settings({
       } = await supabase.auth.getUser();
       if (error) throw error;
 
-      const events = (await fetchEvents()) || [];
+      const events = (await fetchEvents(ownerId)) || [];
 
       const payload = {
         version: "1.0",
@@ -70,7 +95,7 @@ export default function Settings({
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Erro ao gerar backup:", err);
-      alert("Erro ao gerar backup. Tente novamente.");
+      toast.show("Erro ao gerar backup. Tente novamente.", { type: "error" });
     } finally {
       setBackupLoading(false);
     }
@@ -98,23 +123,25 @@ export default function Settings({
       const json = JSON.parse(text);
 
       if (!json || !Array.isArray(json.events)) {
-        alert(
-          "Arquivo de backup inválido. Certifique-se de usar um arquivo gerado pelo próprio sistema."
+        toast.show(
+          "Arquivo de backup inválido. Certifique-se de usar um arquivo gerado pelo próprio sistema.",
+          { type: "error" }
         );
         return;
       }
 
       const eventsFromBackup = json.events;
 
-      await restoreBackupEvents(eventsFromBackup);
+      await restoreBackupEvents(ownerId, eventsFromBackup);
 
       // Recarrega a aplicação para refletir os novos dados
       window.location.reload();
     } catch (err) {
       console.error("Erro ao restaurar backup:", err);
-      alert(
+      toast.show(
         err?.message ||
-          "Ocorreu um erro ao restaurar o backup. Verifique se o arquivo é válido e tente novamente."
+          "Ocorreu um erro ao restaurar o backup. Verifique se o arquivo é válido e tente novamente.",
+        { type: "error" }
       );
     } finally {
       setRestoreLoading(false);
@@ -163,45 +190,63 @@ export default function Settings({
           </div>
         </div>
 
+        {/* Pacientes */}
+        {canEdit && (
+          <PatientsSection
+            ownerId={ownerId}
+            patients={patients}
+            refreshPatients={refreshPatients}
+            card={card}
+            sectionTitle={sectionTitle}
+            badgeNew={badgeNew}
+            inputBase={inputBase}
+            primaryBtn={primaryBtn}
+            dangerBtn={dangerBtn}
+            miniLabel={miniLabel}
+          />
+        )}
+
         {/* Financeiro e exportações */}
-        <div className={card}>
-          <div className="mb-1 flex items-center">
-            <span className={sectionTitle}>Financeiro e exportações</span>
-            <span className={badgeNew}>Novo</span>
-          </div>
-
-          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
-            Gere planilhas com os dados da agenda e do financeiro para análise
-            externa, envio à contabilidade ou conferência manual.
-          </p>
-
-          <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
-            <div>
-              <span className={miniLabel}>Exportações disponíveis:</span>
+        {canViewFinance && (
+          <div className={card}>
+            <div className="mb-1 flex items-center">
+              <span className={sectionTitle}>Financeiro e exportações</span>
+              <span className={badgeNew}>Novo</span>
             </div>
-            <ul className="list-inside list-disc">
-              <li>agenda completa (todos os tipos de eventos) em CSV</li>
-              <li>financeiro de cirurgias (valores, status, observações) em CSV</li>
-            </ul>
-          </div>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={onExportAgenda}
-              className={`${outlineBtn} flex w-full items-center justify-center gap-2`}
-            >
-              📅 Exportar agenda (CSV)
-            </button>
-            <button
-              type="button"
-              onClick={onExportFinance}
-              className={`${outlineBtn} flex w-full items-center justify-center gap-2`}
-            >
-              💳 Exportar financeiro (CSV)
-            </button>
+            <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+              Gere planilhas com os dados da agenda e do financeiro para análise
+              externa, envio à contabilidade ou conferência manual.
+            </p>
+
+            <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
+              <div>
+                <span className={miniLabel}>Exportações disponíveis:</span>
+              </div>
+              <ul className="list-inside list-disc">
+                <li>agenda completa (todos os tipos de eventos) em CSV</li>
+                <li>financeiro de cirurgias (valores, status, observações) em CSV</li>
+              </ul>
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={onExportAgenda}
+                className={`${outlineBtn} flex w-full items-center justify-center gap-2`}
+              >
+                📅 Exportar agenda (CSV)
+              </button>
+              <button
+                type="button"
+                onClick={onExportFinance}
+                className={`${outlineBtn} flex w-full items-center justify-center gap-2`}
+              >
+                💳 Exportar financeiro (CSV)
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Integração com Google Agenda (em breve) */}
         <div className={card}>
@@ -212,7 +257,10 @@ export default function Settings({
 
           <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
             No futuro, será possível conectar a agenda do consultório com o
-            Google Agenda para sincronizar compromissos importantes.
+            Google Agenda para sincronizar compromissos importantes. Essa
+            integração depende de credenciais OAuth do Google Cloud (Client
+            ID/Secret) que só você pode gerar — por isso ficou de fora desta
+            rodada de melhorias, a seu pedido.
           </p>
 
           <ul className="mb-3 list-inside list-disc text-xs text-slate-500 dark:text-slate-400">
@@ -230,32 +278,19 @@ export default function Settings({
           </button>
         </div>
 
-        {/* Usuários e permissões (em breve) */}
-        <div className={card}>
-          <div className="mb-1 flex items-center">
-            <span className={sectionTitle}>Usuários e permissões</span>
-            <span className={badgeSoon}>Em breve</span>
-          </div>
-
-          <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
-            No futuro, será possível adicionar outras pessoas com acesso limitado
-            à agenda (por exemplo, secretária ou assistente).
-          </p>
-
-          <ul className="mb-3 list-inside list-disc text-xs text-slate-500 dark:text-slate-400">
-            <li>controle de permissão de leitura e edição</li>
-            <li>registro de quem criou ou alterou um agendamento</li>
-            <li>limitação de acesso apenas ao necessário</li>
-          </ul>
-
-          <button
-            type="button"
-            disabled
-            className="inline-flex items-center justify-center rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-400 shadow-sm dark:border-slate-700 dark:text-slate-500"
-          >
-            👥 Gerenciar usuários
-          </button>
-        </div>
+        {/* Usuários e permissões */}
+        {isOwner && (
+          <MembersSection
+            ownerId={ownerId}
+            card={card}
+            sectionTitle={sectionTitle}
+            badgeNew={badgeNew}
+            inputBase={inputBase}
+            primaryBtn={primaryBtn}
+            dangerBtn={dangerBtn}
+            miniLabel={miniLabel}
+          />
+        )}
 
         {/* Backup e segurança */}
         <div className={card}>
@@ -293,37 +328,412 @@ export default function Settings({
               : "Baixar backup completo (JSON)"}
           </button>
 
-          {/* Input escondido para restaurar backup */}
-          <input
-            type="file"
-            accept="application/json"
-            id="backup-file-input"
-            className="hidden"
-            onChange={handleRestoreBackupChange}
-          />
+          {isOwner && (
+            <>
+              {/* Input escondido para restaurar backup */}
+              <input
+                type="file"
+                accept="application/json"
+                id="backup-file-input"
+                className="hidden"
+                onChange={handleRestoreBackupChange}
+              />
 
-          <button
-            type="button"
-            onClick={() => {
-              const input = document.getElementById("backup-file-input");
-              if (input && !restoreLoading) {
-                input.click();
-              }
-            }}
-            disabled={restoreLoading}
-            className={`${outlineBtn} mt-2 flex w-full items-center justify-center gap-2`}
-          >
-            📤{" "}
-            {restoreLoading
-              ? "Restaurando backup..."
-              : "Restaurar a partir de backup (JSON)"}
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const input = document.getElementById("backup-file-input");
+                  if (input && !restoreLoading) {
+                    input.click();
+                  }
+                }}
+                disabled={restoreLoading}
+                className={`${outlineBtn} mt-2 flex w-full items-center justify-center gap-2`}
+              >
+                📤{" "}
+                {restoreLoading
+                  ? "Restaurando backup..."
+                  : "Restaurar a partir de backup (JSON)"}
+              </button>
 
-          <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-            Atenção: a restauração vai substituir todos os eventos atuais da
-            agenda pelos eventos contidos no arquivo de backup selecionado.
-          </p>
+              <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                Atenção: a restauração vai substituir todos os eventos atuais da
+                agenda pelos eventos contidos no arquivo de backup selecionado.
+              </p>
+            </>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+//   PACIENTES
+// -----------------------------------------------------------------------
+function PatientsSection({
+  ownerId,
+  patients,
+  refreshPatients,
+  card,
+  sectionTitle,
+  badgeNew,
+  inputBase,
+  primaryBtn,
+  dangerBtn,
+  miniLabel,
+}) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  function resetForm() {
+    setName("");
+    setPhone("");
+    setEmail("");
+    setEditingId(null);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    try {
+      setSaving(true);
+      if (editingId) {
+        await updatePatient(editingId, { name: name.trim(), phone, email });
+        toast.show("Paciente atualizado.", { type: "success" });
+      } else {
+        await createPatient(ownerId, { name: name.trim(), phone, email });
+        toast.show("Paciente cadastrado.", { type: "success" });
+      }
+      resetForm();
+      await refreshPatients?.();
+    } catch (err) {
+      console.error("Erro ao salvar paciente:", err);
+      toast.show("Erro ao salvar paciente.", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function startEdit(p) {
+    setEditingId(p.id);
+    setName(p.name || "");
+    setPhone(p.phone || "");
+    setEmail(p.email || "");
+  }
+
+  async function handleDelete(p) {
+    const ok = window.confirm(`Remover o paciente "${p.name}"?`);
+    if (!ok) return;
+
+    try {
+      await deletePatient(p.id);
+      toast.show("Paciente removido.", { type: "info" });
+      if (editingId === p.id) resetForm();
+      await refreshPatients?.();
+    } catch (err) {
+      console.error("Erro ao remover paciente:", err);
+      toast.show("Erro ao remover paciente.", { type: "error" });
+    }
+  }
+
+  return (
+    <div className={card}>
+      <div className="mb-1 flex items-center">
+        <span className={sectionTitle}>Pacientes</span>
+        <span className={badgeNew}>Novo</span>
+      </div>
+
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+        Cadastre pacientes para vincular aos compromissos da agenda.
+      </p>
+
+      <form onSubmit={handleSubmit} className="grid gap-2 sm:grid-cols-3">
+        <div className="sm:col-span-1">
+          <span className={miniLabel}>Nome</span>
+          <input
+            className={inputBase}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nome do paciente"
+            required
+          />
+        </div>
+        <div className="sm:col-span-1">
+          <span className={miniLabel}>Telefone</span>
+          <input
+            className={inputBase}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="(00) 00000-0000"
+          />
+        </div>
+        <div className="sm:col-span-1">
+          <span className={miniLabel}>E-mail</span>
+          <input
+            className={inputBase}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="email@exemplo.com"
+            type="email"
+          />
+        </div>
+
+        <div className="sm:col-span-3 flex gap-2">
+          <button type="submit" disabled={saving} className={primaryBtn}>
+            {editingId ? "Salvar alterações" : "Adicionar paciente"}
+          </button>
+          {editingId && (
+            <button type="button" onClick={resetForm} className="text-xs text-slate-500 hover:underline">
+              Cancelar edição
+            </button>
+          )}
+        </div>
+      </form>
+
+      <div className="mt-4 space-y-1">
+        {patients.length === 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Nenhum paciente cadastrado ainda.
+          </p>
+        )}
+
+        {patients.map((p) => (
+          <div
+            key={p.id}
+            className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+          >
+            <div>
+              <div className="font-medium text-slate-800 dark:text-slate-100">{p.name}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                {[p.phone, p.email].filter(Boolean).join(" · ")}
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                onClick={() => startEdit(p)}
+                className="rounded-lg px-2 py-1 text-xs text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-500/10"
+              >
+                Editar
+              </button>
+              <button type="button" onClick={() => handleDelete(p)} className={dangerBtn}>
+                Remover
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+//   MEMBROS DA EQUIPE (secretária / assistente)
+// -----------------------------------------------------------------------
+function MembersSection({
+  ownerId,
+  card,
+  sectionTitle,
+  badgeNew,
+  inputBase,
+  primaryBtn,
+  dangerBtn,
+  miniLabel,
+}) {
+  const toast = useToast();
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("secretary");
+  const [canEditNew, setCanEditNew] = useState(true);
+  const [canViewFinanceNew, setCanViewFinanceNew] = useState(false);
+  const [inviting, setInviting] = useState(false);
+
+  async function load() {
+    if (!ownerId) return;
+    try {
+      setLoading(true);
+      const list = await fetchMembers(ownerId);
+      setMembers(list || []);
+    } catch (err) {
+      console.error("Erro ao carregar membros:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId]);
+
+  async function handleInvite(e) {
+    e.preventDefault();
+    if (!email.trim()) return;
+
+    try {
+      setInviting(true);
+      await inviteMember({
+        email: email.trim(),
+        role,
+        canEdit: canEditNew,
+        canViewFinance: canViewFinanceNew,
+      });
+      toast.show("Convite enviado com sucesso.", { type: "success" });
+      setEmail("");
+      await load();
+    } catch (err) {
+      console.error("Erro ao convidar membro:", err);
+      toast.show(err?.message || "Erro ao convidar usuário.", { type: "error" });
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function togglePerm(member, field) {
+    const next = {
+      canEdit: field === "canEdit" ? !member.can_edit : !!member.can_edit,
+      canViewFinance:
+        field === "canViewFinance" ? !member.can_view_finance : !!member.can_view_finance,
+    };
+
+    try {
+      await updateMemberPermissions(member.id, next);
+      await load();
+    } catch (err) {
+      console.error("Erro ao atualizar permissões:", err);
+      toast.show("Erro ao atualizar permissões.", { type: "error" });
+    }
+  }
+
+  async function handleRemove(member) {
+    const ok = window.confirm(
+      `Remover o acesso de "${member.invited_email || member.member_user_id}"?`
+    );
+    if (!ok) return;
+
+    try {
+      await removeMember(member.id);
+      toast.show("Acesso removido.", { type: "info" });
+      await load();
+    } catch (err) {
+      console.error("Erro ao remover membro:", err);
+      toast.show("Erro ao remover membro.", { type: "error" });
+    }
+  }
+
+  return (
+    <div className={card}>
+      <div className="mb-1 flex items-center">
+        <span className={sectionTitle}>Usuários e permissões</span>
+        <span className={badgeNew}>Novo</span>
+      </div>
+
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+        Convide secretária(s) ou assistente(s) para acessar a agenda com
+        permissões controladas.
+      </p>
+
+      <form onSubmit={handleInvite} className="grid gap-2 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <span className={miniLabel}>E-mail do convidado</span>
+          <input
+            className={inputBase}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="pessoa@exemplo.com"
+            required
+          />
+        </div>
+
+        <div>
+          <span className={miniLabel}>Papel</span>
+          <select className={inputBase} value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="secretary">Secretária</option>
+            <option value="assistant">Assistente</option>
+          </select>
+        </div>
+
+        <div className="flex items-end gap-4">
+          <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={canEditNew}
+              onChange={(e) => setCanEditNew(e.target.checked)}
+            />
+            Pode editar
+          </label>
+          <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={canViewFinanceNew}
+              onChange={(e) => setCanViewFinanceNew(e.target.checked)}
+            />
+            Vê financeiro
+          </label>
+        </div>
+
+        <div className="sm:col-span-2">
+          <button type="submit" disabled={inviting} className={primaryBtn}>
+            {inviting ? "Convidando..." : "Convidar"}
+          </button>
+        </div>
+      </form>
+
+      <div className="mt-4 space-y-1">
+        {loading && <p className="text-xs text-slate-500">Carregando membros...</p>}
+        {!loading && members.length === 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Nenhum membro convidado ainda.
+          </p>
+        )}
+
+        {members.map((m) => (
+          <div
+            key={m.id}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="font-medium text-slate-800 dark:text-slate-100">
+                  {m.invited_email || m.member_user_id}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {m.role === "secretary" ? "Secretária" : "Assistente"}
+                </div>
+              </div>
+              <button type="button" onClick={() => handleRemove(m)} className={dangerBtn}>
+                Remover
+              </button>
+            </div>
+
+            <div className="mt-2 flex gap-4">
+              <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={!!m.can_edit}
+                  onChange={() => togglePerm(m, "canEdit")}
+                />
+                Pode editar
+              </label>
+              <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={!!m.can_view_finance}
+                  onChange={() => togglePerm(m, "canViewFinance")}
+                />
+                Vê financeiro
+              </label>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

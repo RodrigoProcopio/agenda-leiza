@@ -1,16 +1,18 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Header from "./components/Header.jsx";
 import BottomNav from "./components/BottomNav.jsx";
 import Fab from "./components/Fab.jsx";
 import Modal from "./components/Modal.jsx";
 import EventForm from "./components/EventForm.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
+import { useToast } from "./components/Toast.jsx";
 
 import Today from "./pages/Today.jsx";
 import Agenda from "./pages/Agenda.jsx";
 import Finance from "./pages/Finance.jsx";
 import Login from "./pages/Login.jsx";
 import Settings from "./pages/Settings.jsx";
+import ResetPassword from "./pages/ResetPassword.jsx";
 
 import { hasConflict } from "./lib/conflicts.js";
 import { buildWeeklyRecurringEvents } from "./lib/recurrence.js";
@@ -29,6 +31,11 @@ import {
 
 import * as recurrenceApi from "./lib/recurrenceExceptionsApi.js";
 import { getFinanceFilters } from "./lib/financeFiltersStore.js";
+import { resolvePracticeContext } from "./lib/practiceApi.js";
+import { fetchPatients } from "./lib/patientsApi.js";
+
+const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
+const UNDO_DELETE_MS = 5000;
 
 function groupByDay(events) {
   const map = new Map();
@@ -58,12 +65,24 @@ function groupByDay(events) {
 
 function App() {
   const { theme, toggle } = useTheme();
+  const toast = useToast();
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
+
+  // Contexto de prática: quem é o "dono" dos dados e quais permissões o
+  // usuário logado tem (dono sempre tem tudo; membro convidado tem o que
+  // foi configurado em practice_members).
+  const [practiceCtx, setPracticeCtx] = useState(null);
+  const ownerId = practiceCtx?.ownerId ?? null;
+  const canEdit = practiceCtx ? !!practiceCtx.canEdit : true;
+  const canViewFinance = practiceCtx ? !!practiceCtx.canViewFinance : true;
+  const isOwner = practiceCtx ? !!practiceCtx.isOwner : true;
 
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [patients, setPatients] = useState([]);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -87,6 +106,8 @@ function App() {
   const [exceptionsMap, setExceptionsMap] = useState({});
 
   const [tab, setTab] = useState("today");
+
+  const pendingDeletesRef = useRef({});
 
   // -----------------------------
   //   AUTENTICAÇÃO
@@ -114,6 +135,31 @@ function App() {
     loadUser();
   }, []);
 
+  // Escuta eventos de auth (login, logout, e principalmente o link de
+  // "recuperar senha", que dispara PASSWORD_RECOVERY quando o usuário clica
+  // no e-mail de redefinição).
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+      }
+
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setPracticeCtx(null);
+        setEvents([]);
+        setPatients([]);
+        return;
+      }
+
+      if (session?.user) {
+        setUser(session.user);
+      }
+    });
+
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
+
   function handleLoginSuccess(userFromLogin) {
     setUser(userFromLogin ?? null);
   }
@@ -125,28 +171,63 @@ function App() {
       console.error("Erro ao fazer logout:", err);
     } finally {
       setUser(null);
+      setPracticeCtx(null);
       setEvents([]);
+      setPatients([]);
     }
   }
 
   // -----------------------------
-  //   CARREGAR EVENTOS DO SUPABASE
+  //   CONTEXTO DE PRÁTICA (dono x membro convidado)
   // -----------------------------
   useEffect(() => {
-    // se não tiver usuário logado, limpa e não busca
     if (!user) {
-      if (import.meta.env.DEV) console.log("[App] Sem usuário, limpando eventos.");
-      setEvents([]);
+      setPracticeCtx(null);
       return;
     }
 
-    async function loadEvents() {
+    let cancelled = false;
+
+    (async () => {
       try {
-        if (import.meta.env.DEV) console.log("[App] Carregando eventos para user:", user.id);
+        const ctx = await resolvePracticeContext();
+        if (!cancelled) setPracticeCtx(ctx);
+      } catch (err) {
+        console.error("Erro ao resolver contexto da prática:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // -----------------------------
+  //   CARREGAR EVENTOS + PACIENTES DO SUPABASE
+  // -----------------------------
+  useEffect(() => {
+    if (!ownerId) {
+      setEvents([]);
+      setPatients([]);
+      return;
+    }
+
+    async function loadAll() {
+      try {
+        if (import.meta.env.DEV) console.log("[App] Carregando dados para ownerId:", ownerId);
         setLoadingEvents(true);
-        const data = await fetchEvents();
+
+        const [data, patientsList] = await Promise.all([
+          fetchEvents(ownerId),
+          fetchPatients(ownerId).catch((err) => {
+            console.error("[App] Erro ao carregar pacientes:", err);
+            return [];
+          }),
+        ]);
+
         setEvents(data || []);
-        await loadAllExceptions(data || []);
+        setPatients(patientsList || []);
+        await loadAllExceptions(ownerId, data || []);
       } catch (err) {
         console.error("[App] Erro ao carregar eventos:", err);
       } finally {
@@ -154,21 +235,69 @@ function App() {
       }
     }
 
-    loadEvents();
-  }, [user]);
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId]);
+
+  // -----------------------------
+  //   AUTO-REFRESH PERIÓDICO (mantém a tela "Hoje" atualizada mesmo se
+  //   outra pessoa da equipe criar/alterar compromissos)
+  // -----------------------------
+  useEffect(() => {
+    if (!ownerId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await fetchEvents(ownerId);
+        setEvents(data || []);
+        await loadAllExceptions(ownerId, data || []);
+      } catch (err) {
+        console.error("[App] Erro no auto-refresh:", err);
+      }
+    }, AUTO_REFRESH_MS);
+
+    return () => clearInterval(interval);
+  }, [ownerId]);
+
+  async function refreshPatients() {
+    if (!ownerId) return;
+    try {
+      const list = await fetchPatients(ownerId);
+      setPatients(list || []);
+    } catch (err) {
+      console.error("Erro ao atualizar pacientes:", err);
+    }
+  }
+
+  // Se o usuário perde a permissão de ver financeiro (ou é uma secretária
+  // sem essa permissão) e está na aba financeiro, tira ele de lá.
+  useEffect(() => {
+    if (practiceCtx && !canViewFinance && tab === "finance") {
+      setTab("today");
+    }
+  }, [practiceCtx, canViewFinance, tab]);
 
   // -----------------------------
   //   EXCEÇÕES DE RECORRÊNCIA
   // -----------------------------
+  function mapExceptionRows(rows) {
+    return (rows || []).map((row) => ({
+      dayKey: row.day_key,
+      type: row.type || "cancel",
+      newStartISO: row.new_start_iso || null,
+      newEndISO: row.new_end_iso || null,
+    }));
+  }
+
   // Carrega as exceções de UM recurrenceId específico (usado ao abrir o modal de edição)
   async function loadExceptionsFor(recurrenceId) {
-    if (!recurrenceId) return;
+    if (!ownerId || !recurrenceId) return;
 
     try {
-      const list = await recurrenceApi.fetchRecurrenceExceptions(recurrenceId);
+      const list = await recurrenceApi.fetchRecurrenceExceptions(ownerId, recurrenceId);
       setExceptionsMap((prev) => ({
         ...prev,
-        [recurrenceId]: (list || []).map((row) => row.day_key),
+        [recurrenceId]: mapExceptionRows(list),
       }));
     } catch (err) {
       console.error("Erro ao carregar exceções:", err);
@@ -178,7 +307,7 @@ function App() {
   // Carrega as exceções de TODAS as recorrências presentes na lista de eventos
   // (necessário para que "editar apenas este" some da tela em qualquer aba,
   // não só quando o evento específico for reaberto)
-  async function loadAllExceptions(list) {
+  async function loadAllExceptions(ownerIdParam, list) {
     const recurrenceIds = Array.from(
       new Set((list || []).filter((e) => e && e.recurrenceId).map((e) => e.recurrenceId))
     );
@@ -190,12 +319,12 @@ function App() {
 
     try {
       const results = await Promise.all(
-        recurrenceIds.map((id) => recurrenceApi.fetchRecurrenceExceptions(id))
+        recurrenceIds.map((id) => recurrenceApi.fetchRecurrenceExceptions(ownerIdParam, id))
       );
 
       const map = {};
       recurrenceIds.forEach((id, idx) => {
-        map[id] = (results[idx] || []).map((row) => row.day_key);
+        map[id] = mapExceptionRows(results[idx]);
       });
 
       setExceptionsMap(map);
@@ -206,27 +335,44 @@ function App() {
 
   // -----------------------------
   //   EVENTOS PARA TELA
-  //   Aplica as exceções de recorrência: uma ocorrência cuja data (day_key)
-  //   está marcada como exceção para aquele recurrenceId não é exibida.
+  //   Aplica as exceções de recorrência:
+  //   - "cancel": a ocorrência não é exibida (virou um evento avulso à parte)
+  //   - "reschedule": a ocorrência continua vinculada à série, mas é exibida
+  //     em outra data/hora (sem virar um evento avulso)
   // -----------------------------
   const eventsWithRecurrenceApplied = useMemo(() => {
-    return (events || []).filter((ev) => {
-      if (!ev) return false;
-      if (!ev.recurrenceId) return true;
+    return (events || [])
+      .filter(Boolean)
+      .map((ev) => {
+        if (!ev.recurrenceId) return ev;
 
-      const exceptions = exceptionsMap[ev.recurrenceId];
-      if (!exceptions || !exceptions.length) return true;
+        const exceptions = exceptionsMap[ev.recurrenceId];
+        if (!exceptions || !exceptions.length) return ev;
 
-      const dayKey = localYmdFromIso(ev.startISO);
-      return !exceptions.includes(dayKey);
-    });
+        const dayKey = localYmdFromIso(ev.startISO);
+        const match = exceptions.find((exc) => exc.dayKey === dayKey);
+        if (!match) return ev;
+
+        if (match.type === "reschedule" && match.newStartISO && match.newEndISO) {
+          return {
+            ...ev,
+            startISO: match.newStartISO,
+            endISO: match.newEndISO,
+            isRescheduled: true,
+          };
+        }
+
+        // type === "cancel" → não exibe (a versão avulsa já está em `events`)
+        return null;
+      })
+      .filter(Boolean);
   }, [events, exceptionsMap]);
-
 
   // -----------------------------
   //   MODAL NOVO / EDIÇÃO
   // -----------------------------
   function openNew(initialData = null) {
+    if (!canEdit) return;
     setEditing(null);
     setCandidate(initialData);
     setRecurrenceError(null);
@@ -254,27 +400,50 @@ function App() {
   }
 
   // -----------------------------
-  //   EXCLUSÃO (ÚNICO / SÉRIE) COM CONFIRMAÇÃO
+  //   EXCLUSÃO (ÚNICO / SÉRIE) COM CONFIRMAÇÃO + DESFAZER
   // -----------------------------
   async function handleDeleteSingle(ev) {
-    try {
-      await deleteEventCloud(ev.id);
-      setEvents((prev) => prev.filter((e) => e.id !== ev.id));
-    } catch (err) {
-      console.error("Erro ao deletar evento:", err);
-      alert("Erro ao deletar. Tente novamente.");
-    }
+    // Remoção otimista da tela
+    setEvents((prev) => prev.filter((e) => e.id !== ev.id));
+
+    const commit = async () => {
+      try {
+        await deleteEventCloud(ownerId, ev.id);
+      } catch (err) {
+        console.error("Erro ao deletar evento:", err);
+        toast.show("Erro ao excluir o compromisso. Ele foi restaurado.", {
+          type: "error",
+        });
+        setEvents((prev) => (prev.some((e) => e.id === ev.id) ? prev : [...prev, ev]));
+      } finally {
+        delete pendingDeletesRef.current[ev.id];
+      }
+    };
+
+    const timer = setTimeout(commit, UNDO_DELETE_MS);
+    pendingDeletesRef.current[ev.id] = timer;
+
+    toast.show(`"${ev.title || "Compromisso"}" excluído.`, {
+      type: "info",
+      duration: UNDO_DELETE_MS,
+      actionLabel: "Desfazer",
+      onAction: () => {
+        clearTimeout(pendingDeletesRef.current[ev.id]);
+        delete pendingDeletesRef.current[ev.id];
+        setEvents((prev) => (prev.some((e) => e.id === ev.id) ? prev : [...prev, ev]));
+      },
+    });
   }
 
   async function handleDeleteSeries(ev) {
     if (!ev.recurrenceId) return;
 
     try {
-      await deleteEventsByRecurrence(ev.recurrenceId);
+      await deleteEventsByRecurrence(ownerId, ev.recurrenceId);
 
       // Limpa também as exceções órfãs dessa recorrência
       try {
-        await recurrenceApi.deleteRecurrenceExceptions(ev.recurrenceId);
+        await recurrenceApi.deleteRecurrenceExceptions(ownerId, ev.recurrenceId);
       } catch (exErr) {
         console.error("Erro ao limpar exceções da recorrência:", exErr);
       }
@@ -287,14 +456,17 @@ function App() {
         delete next[ev.recurrenceId];
         return next;
       });
+
+      toast.show("Série de compromissos excluída.", { type: "info" });
     } catch (err) {
       console.error("Erro ao deletar recorrência:", err);
-      alert("Erro ao deletar recorrência. Tente novamente.");
+      toast.show("Erro ao deletar recorrência. Tente novamente.", { type: "error" });
     }
   }
 
   // 👉 Agora **sempre** abre modal de confirmação
   function requestDelete(ev) {
+    if (!canEdit) return;
     setDeleteTarget(ev);
     setDeleteChoiceOpen(true);
   }
@@ -331,13 +503,63 @@ function App() {
     setPendingEditData(null);
   }
 
+  // "Apenas neste": se só mudou data/hora, remarca mantendo o vínculo com a
+  // série (não vira evento avulso). Se mudou qualquer outro campo, cria um
+  // evento avulso e marca a ocorrência original como cancelada — como antes.
   async function applyEditSingle() {
     if (!pendingEditData) return;
     const { baseEvent, updated } = pendingEditData;
 
     try {
       setIsSaving(true);
-      const saved = await createEvent({
+
+      const onlyTimeChanged =
+        (updated.type || null) === (baseEvent.type || null) &&
+        (updated.title || "") === (baseEvent.title || "") &&
+        (updated.location || "") === (baseEvent.location || "") &&
+        (updated.notes || "") === (baseEvent.notes || "") &&
+        (updated.patientId || null) === (baseEvent.patientId || null) &&
+        JSON.stringify(updated.surgery || null) === JSON.stringify(baseEvent.surgery || null);
+
+      const dayKey = localYmdFromIso(baseEvent.startISO);
+
+      if (onlyTimeChanged && baseEvent.recurrenceId) {
+        await recurrenceApi.saveRescheduleException(
+          ownerId,
+          baseEvent.recurrenceId,
+          dayKey,
+          updated.startISO,
+          updated.endISO
+        );
+
+        setExceptionsMap((prev) => {
+          const existing = (prev[baseEvent.recurrenceId] || []).filter(
+            (e) => e.dayKey !== dayKey
+          );
+          return {
+            ...prev,
+            [baseEvent.recurrenceId]: [
+              ...existing,
+              {
+                dayKey,
+                type: "reschedule",
+                newStartISO: updated.startISO,
+                newEndISO: updated.endISO,
+              },
+            ],
+          };
+        });
+
+        toast.show("Ocorrência remarcada — o vínculo com a série foi mantido.", {
+          type: "success",
+        });
+
+        closeApplySeriesModal();
+        closeModal();
+        return;
+      }
+
+      const saved = await createEvent(ownerId, {
         ...updated,
         recurrenceId: null,
         recurrence: null,
@@ -348,16 +570,19 @@ function App() {
         return [...without, saved];
       });
 
-      // Marca a ocorrência original como "exceção" para que ela pare de
-      // aparecer na tela (a nova versão avulsa já foi criada acima).
+      // Marca a ocorrência original como "exceção" (cancelada) para que ela
+      // pare de aparecer na tela (a nova versão avulsa já foi criada acima).
       if (baseEvent.recurrenceId) {
-        const dayKey = localYmdFromIso(baseEvent.startISO);
-        await recurrenceApi.addRecurrenceException(baseEvent.recurrenceId, dayKey);
+        await recurrenceApi.addRecurrenceException(ownerId, baseEvent.recurrenceId, dayKey);
 
         setExceptionsMap((prev) => {
-          const existing = prev[baseEvent.recurrenceId] || [];
-          if (existing.includes(dayKey)) return prev;
-          return { ...prev, [baseEvent.recurrenceId]: [...existing, dayKey] };
+          const existing = (prev[baseEvent.recurrenceId] || []).filter(
+            (e) => e.dayKey !== dayKey
+          );
+          return {
+            ...prev,
+            [baseEvent.recurrenceId]: [...existing, { dayKey, type: "cancel" }],
+          };
         });
       }
 
@@ -365,7 +590,7 @@ function App() {
       closeModal();
     } catch (err) {
       console.error("Erro ao aplicar alteração apenas neste:", err);
-      alert("Erro ao salvar. Tente novamente.");
+      toast.show("Erro ao salvar. Tente novamente.", { type: "error" });
     } finally {
       setIsSaving(false);
     }
@@ -383,7 +608,7 @@ function App() {
 
       // Se não tiver recurrenceId, não é série de verdade → atualiza só este
       if (!baseEvent.recurrenceId) {
-        const saved = await updateEventCloud(baseEvent.id, updated);
+        const saved = await updateEventCloud(ownerId, baseEvent.id, updated);
         setEvents((prev) =>
           (prev || []).map((e) => (e && e.id === baseEvent.id ? saved : e))
         );
@@ -411,6 +636,7 @@ function App() {
           location: updated.location,
           notes: updated.notes,
           surgery: updated.surgery,
+          patientId: updated.patientId,
         };
 
         const seriesEvents = (events || []).filter(
@@ -430,7 +656,7 @@ function App() {
               endISO: new Date(end.getTime() + deltaEndMs).toISOString(),
             };
 
-            return updateEventCloud(e.id, payload);
+            return updateEventCloud(ownerId, e.id, payload);
           })
         );
 
@@ -449,7 +675,7 @@ function App() {
 
       // 👉 Aqui é o caminho principal: ainda é uma recorrência semanal
       // 1) Apaga toda a série atual no backend
-      await deleteEventsByRecurrence(recurrenceId);
+      await deleteEventsByRecurrence(ownerId, recurrenceId);
 
       // 2) Remove a série do estado local
       const others = (events || []).filter(
@@ -517,16 +743,29 @@ function App() {
         return;
       }
 
-      const savedList = await createEventsBulk(newEvents);
+      const savedList = await createEventsBulk(ownerId, newEvents);
 
       // 4) Junta novamente: outros eventos + série recriada
       setEvents([...others, ...savedList]);
+
+      // A série foi recriada com novos ids, então as exceções antigas não
+      // fazem mais sentido — limpa para essa recorrência.
+      try {
+        await recurrenceApi.deleteRecurrenceExceptions(ownerId, recurrenceId);
+      } catch (exErr) {
+        console.error("Erro ao limpar exceções antigas da série:", exErr);
+      }
+      setExceptionsMap((prev) => {
+        const next = { ...prev };
+        delete next[recurrenceId];
+        return next;
+      });
 
       closeApplySeriesModal();
       closeModal();
     } catch (err) {
       console.error("Erro ao aplicar alteração na série:", err);
-      alert("Erro ao salvar. Tente novamente.");
+      toast.show("Erro ao salvar. Tente novamente.", { type: "error" });
     } finally {
       setIsSaving(false);
     }
@@ -555,7 +794,7 @@ function App() {
         }
 
         // Evento sem série → atualização simples
-        const saved = await updateEventCloud(editing.id, formData);
+        const saved = await updateEventCloud(ownerId, editing.id, formData);
         setEvents((prev) =>
           (prev || []).map((e) => (e && e.id === editing.id ? saved : e))
         );
@@ -636,11 +875,11 @@ function App() {
             return;
           }
 
-          const savedList = await createEventsBulk(recurringEvents);
+          const savedList = await createEventsBulk(ownerId, recurringEvents);
           setEvents((prev) => [...(prev || []), ...savedList]);
         } else {
           // Evento simples (não recorrente)
-          const saved = await createEvent(formData);
+          const saved = await createEvent(ownerId, formData);
           setEvents((prev) => [...(prev || []), saved]);
         }
       }
@@ -648,7 +887,7 @@ function App() {
       closeModal();
     } catch (err) {
       console.error("Erro ao salvar evento:", err);
-      alert("Erro ao salvar. Tente novamente.");
+      toast.show("Erro ao salvar. Tente novamente.", { type: "error" });
     } finally {
       setIsSaving(false);
     }
@@ -703,6 +942,13 @@ function App() {
   //   TOGGLE PAGO / A RECEBER
   // -----------------------------
   async function togglePaid(id) {
+    if (!canViewFinance) {
+      toast.show("Você não tem permissão para alterar informações financeiras.", {
+        type: "error",
+      });
+      return;
+    }
+
     const found = (events || []).filter(Boolean).find((e) => e.id === id);
     if (!found || !found.surgery) return;
 
@@ -722,10 +968,10 @@ function App() {
     );
 
     try {
-      await updateEventCloud(id, { surgery: next.surgery });
+      await updateEventCloud(ownerId, id, { ...found, surgery: next.surgery });
     } catch (err) {
       console.error("Erro ao alternar status de pagamento:", err);
-      alert("Erro ao salvar. Tente novamente.");
+      toast.show("Erro ao salvar. Tente novamente.", { type: "error" });
       setEvents((prev) =>
         (prev || []).map((e) => (e && e.id === id ? found : e))
       );
@@ -759,8 +1005,9 @@ function App() {
     }
 
     if (surgeries.length === 0) {
-      alert(
-        "Não há cirurgias para exportar com os filtros atuais do financeiro."
+      toast.show(
+        "Não há cirurgias para exportar com os filtros atuais do financeiro.",
+        { type: "info" }
       );
       return;
     }
@@ -811,7 +1058,7 @@ function App() {
     const list = (events || []).filter(Boolean);
 
     if (list.length === 0) {
-      alert("Não há eventos na agenda para exportar.");
+      toast.show("Não há eventos na agenda para exportar.", { type: "info" });
       return;
     }
 
@@ -907,8 +1154,12 @@ function App() {
       : { title: "Configurações", showDate: false };
 
   // -----------------------------
-  //   ESTADOS DE LOGIN
+  //   ESTADOS DE LOGIN / RECUPERAÇÃO DE SENHA
   // -----------------------------
+  if (passwordRecovery) {
+    return <ResetPassword onDone={() => setPasswordRecovery(false)} />;
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-dvh bg-sky-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -939,6 +1190,7 @@ function App() {
             : null;
 
         return {
+          id: editing.id,
           type: editing.type,
           date: ymd,
           start: startHm,
@@ -951,6 +1203,7 @@ function App() {
           repeatWeekly: isWeekly,
           repeatUntil,
           weekdays: isWeekly ? rec.weekdays ?? [] : [],
+          patientId: editing.patientId ?? null,
         };
       })()
     : candidate;
@@ -982,11 +1235,13 @@ function App() {
         />
       )}
 
-      {tab === "finance" && (
+      {tab === "finance" && canViewFinance && (
         <Finance
           events={events}
           onTogglePaid={togglePaid}
           onOpen={openEdit}
+          ownerId={ownerId}
+          canEdit={canEdit}
         />
       )}
 
@@ -996,11 +1251,17 @@ function App() {
           onToggleTheme={toggle}
           onExportFinance={exportFinanceCSV}
           onExportAgenda={exportAgendaCSV}
+          ownerId={ownerId}
+          isOwner={isOwner}
+          canEdit={canEdit}
+          canViewFinance={canViewFinance}
+          patients={patients}
+          refreshPatients={refreshPatients}
         />
       )}
 
-      <Fab onClick={openNew} />
-      <BottomNav tab={tab} setTab={setTab} />
+      {canEdit && <Fab onClick={openNew} />}
+      <BottomNav tab={tab} setTab={setTab} showFinance={canViewFinance} />
 
       {/* MODAL PRINCIPAL (CRIAR / EDITAR COMPROMISSO) */}
       <Modal
@@ -1026,6 +1287,9 @@ function App() {
           initial={initialForForm}
           onDelete={editing ? () => requestDelete(editing) : undefined}
           conflictWith={liveConflict}
+          patients={patients}
+          canViewFinance={canViewFinance}
+          canEdit={canEdit}
           onChangeCandidate={(cand) => {
             setCandidate(cand);
 
@@ -1069,7 +1333,7 @@ function App() {
       <ConfirmModal
         open={applySeriesOpen}
         title="Aplicar alteração"
-        description="Deseja aplicar esta alteração apenas neste compromisso ou em toda a série?"
+        description="Deseja aplicar esta alteração apenas neste compromisso (remarcar mantendo o vínculo com a série, se só a data/hora mudou) ou em toda a série?"
         confirmLabel="Aplicar em toda a série"
         secondaryLabel="Apenas neste"
         onConfirm={applyEditSeries}
