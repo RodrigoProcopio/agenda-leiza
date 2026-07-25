@@ -46,10 +46,10 @@ export default function Finance({ events, onTogglePaid, onOpen }) {
       surgeriesAll.map((e) => localYmdFromIso(e.startISO).slice(0, 7))
     );
 
-    // Se não tiver cirurgia ainda, garante mês atual
-    if (set.size === 0) {
-      set.add(monthKey);
-    }
+    // Garante que o mês atualmente selecionado sempre apareça nas opções,
+    // mesmo que não haja cirurgias nele (senão o <select> cai no primeiro
+    // mês da lista em vez de mostrar o mês corrente).
+    set.add(monthKey);
 
     return Array.from(set).sort();
   }, [surgeriesAll, monthKey]);
