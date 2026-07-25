@@ -113,7 +113,8 @@ export default function Settings({
     } catch (err) {
       console.error("Erro ao restaurar backup:", err);
       alert(
-        "Ocorreu um erro ao restaurar o backup. Verifique se o arquivo é válido e tente novamente."
+        err?.message ||
+          "Ocorreu um erro ao restaurar o backup. Verifique se o arquivo é válido e tente novamente."
       );
     } finally {
       setRestoreLoading(false);

@@ -32,7 +32,7 @@ export async function fetchEvents() {
   const session = await supabase.auth.getSession();
   const user = session.data?.session?.user;
 
-  console.log("[fetchEvents] session user:", user);
+  if (import.meta.env.DEV) console.log("[fetchEvents] session user:", user);
 
   // Se não tiver usuário, já avisa no console e retorna vazio
   if (!user) {
@@ -52,7 +52,7 @@ export async function fetchEvents() {
     throw error;
   }
 
-  console.log("[fetchEvents] Linhas recebidas do Supabase:", data);
+  if (import.meta.env.DEV) console.log("[fetchEvents] Linhas recebidas do Supabase:", data);
 
   return (data || []).map(mapRow);
 }
@@ -147,23 +147,9 @@ export async function restoreBackupEvents(events) {
   const user = await getSessionUser();
   if (!user) throw new Error("Não autenticado");
 
-  // 1) Apaga tudo do usuário
-  const { error: delError } = await supabase
-    .from("events")
-    .delete()
-    .eq("user_id", user.id);
-
-  if (delError) {
-    console.error("Erro ao apagar eventos antes de restaurar backup:", delError);
-    throw delError;
-  }
-
-  if (!events || !events.length) {
-    return [];
-  }
-
-  // 2) Normaliza o backup para o formato camelCase que o createEventsBulk usa
-  const normalized = events.map((ev) => ({
+  // 1) Normaliza e valida o backup ANTES de apagar qualquer coisa.
+  //    Se o arquivo for inválido, falha aqui e nada é perdido.
+  const normalized = (events || []).map((ev) => ({
     id: ev.id,
     type: ev.type,
     title: ev.title ?? null,
@@ -177,8 +163,57 @@ export async function restoreBackupEvents(events) {
     isException: ev.isException ?? ev.is_exception ?? false,
   }));
 
-  // 3) Reinsere (createEventsBulk já seta user_id = auth user)
-  return await createEventsBulk(normalized);
+  const invalid = normalized.some((ev) => !ev.startISO || !ev.endISO || !ev.type);
+  if (invalid) {
+    throw new Error(
+      "Backup inválido: um ou mais eventos estão sem tipo, início ou fim."
+    );
+  }
+
+  // 2) Guarda uma cópia de segurança dos eventos ATUAIS antes de apagar,
+  //    para o caso de a reinserção falhar no meio do caminho.
+  const safetySnapshot = await fetchEvents();
+
+  // 3) Apaga tudo do usuário
+  const { error: delError } = await supabase
+    .from("events")
+    .delete()
+    .eq("user_id", user.id);
+
+  if (delError) {
+    console.error("Erro ao apagar eventos antes de restaurar backup:", delError);
+    throw delError;
+  }
+
+  if (!normalized.length) {
+    return [];
+  }
+
+  // 4) Reinsere (createEventsBulk já seta user_id = auth user)
+  try {
+    return await createEventsBulk(normalized);
+  } catch (insertError) {
+    console.error(
+      "Erro ao reinserir eventos do backup. Tentando reverter para o estado anterior...",
+      insertError
+    );
+
+    // Tentativa de recuperação: repõe os eventos que existiam antes da restauração.
+    try {
+      if (safetySnapshot.length) {
+        await createEventsBulk(safetySnapshot);
+      }
+      throw new Error(
+        "Não foi possível restaurar o backup. Seus eventos anteriores foram recuperados e nada foi perdido."
+      );
+    } catch (revertError) {
+      console.error("Falha ao reverter para o estado anterior:", revertError);
+      throw new Error(
+        "Falha crítica ao restaurar backup: os eventos anteriores podem ter sido perdidos. " +
+          "Entre em contato com o suporte e, se tiver, use o arquivo de backup mais recente para tentar restaurar novamente."
+      );
+    }
+  }
 }
 
 /**

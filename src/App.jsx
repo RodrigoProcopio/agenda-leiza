@@ -135,18 +135,18 @@ function App() {
   useEffect(() => {
     // se não tiver usuário logado, limpa e não busca
     if (!user) {
-      console.log("[App] Sem usuário, limpando eventos.");
+      if (import.meta.env.DEV) console.log("[App] Sem usuário, limpando eventos.");
       setEvents([]);
       return;
     }
 
     async function loadEvents() {
       try {
-        console.log("[App] Carregando eventos para user:", user.id);
+        if (import.meta.env.DEV) console.log("[App] Carregando eventos para user:", user.id);
         setLoadingEvents(true);
         const data = await fetchEvents();
-        console.log("[App] Eventos recebidos:", data);
         setEvents(data || []);
+        await loadAllExceptions(data || []);
       } catch (err) {
         console.error("[App] Erro ao carregar eventos:", err);
       } finally {
@@ -160,31 +160,67 @@ function App() {
   // -----------------------------
   //   EXCEÇÕES DE RECORRÊNCIA
   // -----------------------------
+  // Carrega as exceções de UM recurrenceId específico (usado ao abrir o modal de edição)
   async function loadExceptionsFor(recurrenceId) {
     if (!recurrenceId) return;
 
-    const fn = recurrenceApi.fetchExceptionsForRecurrence;
-    if (!fn) return;
-
     try {
-      const list = await fn(recurrenceId);
+      const list = await recurrenceApi.fetchRecurrenceExceptions(recurrenceId);
       setExceptionsMap((prev) => ({
         ...prev,
-        [recurrenceId]: list ?? [],
+        [recurrenceId]: (list || []).map((row) => row.day_key),
       }));
     } catch (err) {
       console.error("Erro ao carregar exceções:", err);
     }
   }
 
+  // Carrega as exceções de TODAS as recorrências presentes na lista de eventos
+  // (necessário para que "editar apenas este" some da tela em qualquer aba,
+  // não só quando o evento específico for reaberto)
+  async function loadAllExceptions(list) {
+    const recurrenceIds = Array.from(
+      new Set((list || []).filter((e) => e && e.recurrenceId).map((e) => e.recurrenceId))
+    );
+
+    if (!recurrenceIds.length) {
+      setExceptionsMap({});
+      return;
+    }
+
+    try {
+      const results = await Promise.all(
+        recurrenceIds.map((id) => recurrenceApi.fetchRecurrenceExceptions(id))
+      );
+
+      const map = {};
+      recurrenceIds.forEach((id, idx) => {
+        map[id] = (results[idx] || []).map((row) => row.day_key);
+      });
+
+      setExceptionsMap(map);
+    } catch (err) {
+      console.error("Erro ao carregar exceções de recorrência:", err);
+    }
+  }
+
   // -----------------------------
   //   EVENTOS PARA TELA
-  //   (agora usamos exatamente o que vem do banco,
-  //    sem aplicar recorrência de novo)
+  //   Aplica as exceções de recorrência: uma ocorrência cuja data (day_key)
+  //   está marcada como exceção para aquele recurrenceId não é exibida.
   // -----------------------------
   const eventsWithRecurrenceApplied = useMemo(() => {
-    return (events || []).filter(Boolean);
-  }, [events]);
+    return (events || []).filter((ev) => {
+      if (!ev) return false;
+      if (!ev.recurrenceId) return true;
+
+      const exceptions = exceptionsMap[ev.recurrenceId];
+      if (!exceptions || !exceptions.length) return true;
+
+      const dayKey = localYmdFromIso(ev.startISO);
+      return !exceptions.includes(dayKey);
+    });
+  }, [events, exceptionsMap]);
 
 
   // -----------------------------
@@ -235,9 +271,22 @@ function App() {
 
     try {
       await deleteEventsByRecurrence(ev.recurrenceId);
+
+      // Limpa também as exceções órfãs dessa recorrência
+      try {
+        await recurrenceApi.deleteRecurrenceExceptions(ev.recurrenceId);
+      } catch (exErr) {
+        console.error("Erro ao limpar exceções da recorrência:", exErr);
+      }
+
       setEvents((prev) =>
         prev.filter((e) => e.recurrenceId !== ev.recurrenceId)
       );
+      setExceptionsMap((prev) => {
+        const next = { ...prev };
+        delete next[ev.recurrenceId];
+        return next;
+      });
     } catch (err) {
       console.error("Erro ao deletar recorrência:", err);
       alert("Erro ao deletar recorrência. Tente novamente.");
@@ -299,16 +348,17 @@ function App() {
         return [...without, saved];
       });
 
-      const saveEx = recurrenceApi.saveRecurrenceException;
-      if (saveEx) {
-        const ex = {
-          recurrence_id: baseEvent.recurrenceId,
-          type: "cancel",
-          original_start_iso: baseEvent.startISO,
-          original_end_iso: baseEvent.endISO,
-          payload: null,
-        };
-        await saveEx(ex);
+      // Marca a ocorrência original como "exceção" para que ela pare de
+      // aparecer na tela (a nova versão avulsa já foi criada acima).
+      if (baseEvent.recurrenceId) {
+        const dayKey = localYmdFromIso(baseEvent.startISO);
+        await recurrenceApi.addRecurrenceException(baseEvent.recurrenceId, dayKey);
+
+        setExceptionsMap((prev) => {
+          const existing = prev[baseEvent.recurrenceId] || [];
+          if (existing.includes(dayKey)) return prev;
+          return { ...prev, [baseEvent.recurrenceId]: [...existing, dayKey] };
+        });
       }
 
       closeApplySeriesModal();
