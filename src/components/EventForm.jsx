@@ -43,6 +43,14 @@ function hmToMinutes(hm) {
   return h * 60 + m;
 }
 
+function minutesToHm(totalMinutes) {
+  const wrapped = ((totalMinutes % 1440) + 1440) % 1440;
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}`;
+}
+
 export default function EventForm({
   initial,
   onSubmit,
@@ -76,6 +84,9 @@ export default function EventForm({
   const [date, setDate] = useState(todayYmd());
   const [start, setStart] = useState("08:00");
   const [end, setEnd] = useState("09:00");
+  // Enquanto o usuário não mexer manualmente no campo "Fim" de um evento
+  // novo, mantemos ele sincronizado com "Início" + 1h automaticamente.
+  const [endTouched, setEndTouched] = useState(false);
   const [location, setLocation] = useState("");
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
@@ -101,6 +112,7 @@ export default function EventForm({
     setDate(initial.date || todayYmd());
     setStart(initial.start || "08:00");
     setEnd(initial.end || "09:00");
+    setEndTouched(true);
     setLocation(initial.location || "");
     setTitle(initial.title || "");
     setNotes(initial.notes || "");
@@ -339,7 +351,17 @@ export default function EventForm({
             type="time"
             className={`${inputBase} min-w-0`}
             value={start}
-            onChange={(e) => setStart(e.target.value)}
+            onChange={(e) => {
+              const newStart = e.target.value;
+              setStart(newStart);
+              // Preenche o "Fim" automaticamente com +1h enquanto o usuário
+              // não tiver alterado esse campo manualmente (só em novos
+              // compromissos, para não atrapalhar a edição de eventos já
+              // existentes).
+              if (!editing && !endTouched && newStart) {
+                setEnd(minutesToHm(hmToMinutes(newStart) + 60));
+              }
+            }}
             required
           />
         </div>
@@ -352,7 +374,10 @@ export default function EventForm({
             type="time"
             className={`${inputBase} min-w-0`}
             value={end}
-            onChange={(e) => setEnd(e.target.value)}
+            onChange={(e) => {
+              setEnd(e.target.value);
+              setEndTouched(true);
+            }}
             required
           />
           {invalidTime && (
