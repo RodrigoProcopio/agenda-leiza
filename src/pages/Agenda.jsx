@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
+import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
 import ptBrLocale from "@fullcalendar/core/locales/pt-br";
 import { parseLocalDateTimeString } from "../lib/time.js";
@@ -21,9 +22,18 @@ function scrollTimeFromNow(offsetMinutes = 60) {
   return `${hh}:${mm}:00`;
 }
 
-const VIEWS = [
+// No celular, a grade de semana (7 colunas) fica espremida e força rolagem
+// horizontal — trocamos por uma visão de lista, muito mais utilizável em
+// telas estreitas. No desktop mantemos a grade de semana tradicional.
+const VIEWS_DESKTOP = [
   { id: "timeGridDay", label: "Dia" },
   { id: "timeGridWeek", label: "Sem" },
+  { id: "dayGridMonth", label: "Mês" },
+];
+
+const VIEWS_MOBILE = [
+  { id: "timeGridDay", label: "Dia" },
+  { id: "listWeek", label: "Sem" },
   { id: "dayGridMonth", label: "Mês" },
 ];
 
@@ -34,6 +44,7 @@ export default function Agenda({ events, onOpen }) {
   const [search, setSearch] = useState("");
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const VIEWS = isMobile ? VIEWS_MOBILE : VIEWS_DESKTOP;
 
   // Se quiser: no desktop abrir semana por padrão
   useEffect(() => {
@@ -89,14 +100,19 @@ const fcEvents = useMemo(() => {
     syncTitle();
   }
 
+  // scrollToTime só existe nas visões de grade de horário (dia/semana em
+  // grade) — a visão de lista (mobile) não tem uma grade para rolar.
+  function isTimeGridView(v) {
+    return v === "timeGridDay" || v === "timeGridWeek";
+  }
+
   function goToday() {
     const api = getApi();
     if (!api) return;
     api.today();
     syncTitle();
 
-    // scroll só faz sentido no day/week
-    if (view !== "dayGridMonth") {
+    if (isTimeGridView(view)) {
       api.scrollToTime(scrollTimeFromNow(60));
     }
   }
@@ -109,7 +125,7 @@ const fcEvents = useMemo(() => {
     api.changeView(nextView);
     syncTitle();
 
-    if (nextView !== "dayGridMonth") {
+    if (isTimeGridView(nextView)) {
       // pequeno delay pro DOM renderizar
       setTimeout(() => api.scrollToTime(scrollTimeFromNow(60)), 120);
     }
@@ -207,7 +223,7 @@ const fcEvents = useMemo(() => {
         <div className="min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-transparent">
           <FullCalendar
             ref={calendarRef}
-            plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}
+            plugins={[timeGridPlugin, dayGridPlugin, listPlugin, interactionPlugin]}
             timeZone="local"
             locales={[ptBrLocale]}
             locale="pt-br"
