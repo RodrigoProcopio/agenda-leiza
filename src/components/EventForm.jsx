@@ -353,13 +353,16 @@ export default function EventForm({
             value={start}
             onChange={(e) => {
               const newStart = e.target.value;
+              console.log("[DEBUG] start onChange", { newStart, editing, endTouched });
               setStart(newStart);
               // Preenche o "Fim" automaticamente com +1h enquanto o usuário
               // não tiver alterado esse campo manualmente (só em novos
               // compromissos, para não atrapalhar a edição de eventos já
               // existentes).
               if (!editing && !endTouched && newStart) {
-                setEnd(minutesToHm(hmToMinutes(newStart) + 60));
+                const computed = minutesToHm(hmToMinutes(newStart) + 60);
+                console.log("[DEBUG] setting end to", computed);
+                setEnd(computed);
               }
             }}
             required
