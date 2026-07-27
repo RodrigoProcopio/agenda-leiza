@@ -16,6 +16,40 @@ import { saveOwnProfile, uploadOwnAvatar, changeOwnPassword } from "../lib/profi
 import { useToast } from "../components/Toast.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
 
+// -----------------------------------------------------------------------
+//   SEÇÃO RECOLHÍVEL (menu suspenso)
+// -----------------------------------------------------------------------
+// Cada seção de Configurações usa esse wrapper para poder ser aberta/fechada
+// pelo próprio usuário. `defaultOpen` controla o estado inicial: a maioria
+// das seções vem aberta, exceto "Trocar senha", que vem fechada.
+function Collapsible({ card, sectionTitle, title, badge, defaultOpen = true, nested = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className={nested ? "mt-5 border-t border-slate-200 pt-4 dark:border-slate-800" : card}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="flex items-center">
+          <span className={sectionTitle}>{title}</span>
+          {badge}
+        </span>
+        <span
+          className={`shrink-0 text-slate-400 transition-transform dark:text-slate-500 ${
+            open ? "rotate-180" : ""
+          }`}
+          aria-hidden="true"
+        >
+          ▾
+        </span>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
+
 export default function Settings({
   theme,
   onToggleTheme,
@@ -169,12 +203,13 @@ export default function Settings({
         />
 
         {/* Aparência e tema */}
-        <div className={card}>
-          <div className="mb-1 flex items-center">
-            <span className={sectionTitle}>Aparência e tema</span>
-            <span className={badgeNew}>Novo</span>
-          </div>
-
+        <Collapsible
+          card={card}
+          sectionTitle={sectionTitle}
+          title="Aparência e tema"
+          badge={<span className={badgeNew}>Novo</span>}
+          defaultOpen
+        >
           <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
             Escolha entre tema claro ou escuro. Essa configuração afeta todo o
             sistema e pode ser alterada a qualquer momento.
@@ -217,7 +252,7 @@ export default function Settings({
               </svg>
             </button>
           </div>
-        </div>
+        </Collapsible>
 
         {/* Notificações (apenas para o dono da agenda) */}
         {isOwner && (
@@ -242,12 +277,13 @@ export default function Settings({
 
         {/* Financeiro e exportações */}
         {canViewFinance && (
-          <div className={card}>
-            <div className="mb-1 flex items-center">
-              <span className={sectionTitle}>Financeiro e exportações</span>
-              <span className={badgeNew}>Novo</span>
-            </div>
-
+          <Collapsible
+            card={card}
+            sectionTitle={sectionTitle}
+            title="Financeiro e exportações"
+            badge={<span className={badgeNew}>Novo</span>}
+            defaultOpen
+          >
             <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
               Gere planilhas com os dados da agenda e do financeiro para análise
               externa, envio à contabilidade ou conferência manual.
@@ -279,16 +315,21 @@ export default function Settings({
                 💳 Exportar financeiro (CSV)
               </button>
             </div>
-          </div>
+          </Collapsible>
         )}
 
         {/* Integração com Google Agenda (em breve) */}
-        <div className={card}>
-          <div className="flex items-center">
-            <span className={sectionTitle}>Integração com Google Agenda</span>
-            <span className={badgeSoon}>Em breve</span>
-          </div>
-        </div>
+        <Collapsible
+          card={card}
+          sectionTitle={sectionTitle}
+          title="Integração com Google Agenda"
+          badge={<span className={badgeSoon}>Em breve</span>}
+          defaultOpen
+        >
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Em breve será possível sincronizar sua agenda com o Google Agenda.
+          </p>
+        </Collapsible>
 
         {/* Usuários e permissões */}
         {isOwner && (
@@ -306,12 +347,13 @@ export default function Settings({
 
         {/* Backup e segurança (apenas para o dono da agenda) */}
         {isOwner && (
-          <div className={card}>
-            <div className="mb-1 flex items-center">
-              <span className={sectionTitle}>Backup e segurança</span>
-              <span className={badgeNew}>Novo</span>
-            </div>
-
+          <Collapsible
+            card={card}
+            sectionTitle={sectionTitle}
+            title="Backup e segurança"
+            badge={<span className={badgeNew}>Novo</span>}
+            defaultOpen
+          >
             <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
               Gere um arquivo de backup completo com todos os eventos da agenda.
               Esse arquivo pode ser guardado como cópia de segurança ou usado para
@@ -371,7 +413,7 @@ export default function Settings({
               Atenção: a restauração vai substituir todos os eventos atuais da
               agenda pelos eventos contidos no arquivo de backup selecionado.
             </p>
-          </div>
+          </Collapsible>
         )}
       </div>
 
@@ -513,12 +555,13 @@ function ProfileSection({
   }
 
   return (
-    <div className={card}>
-      <div className="mb-1 flex items-center">
-        <span className={sectionTitle}>Perfil e conta</span>
-        <span className={badgeNew}>Novo</span>
-      </div>
-
+    <Collapsible
+      card={card}
+      sectionTitle={sectionTitle}
+      title="Perfil e conta"
+      badge={<span className={badgeNew}>Novo</span>}
+      defaultOpen
+    >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Essas informações aparecem no topo do sistema.
       </p>
@@ -603,9 +646,13 @@ function ProfileSection({
         </div>
       </form>
 
-      <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800">
-        <span className={sectionTitle}>Trocar senha</span>
-        <p className="mb-3 mt-1 text-sm text-slate-600 dark:text-slate-300">
+      <Collapsible
+        sectionTitle={sectionTitle}
+        title="Trocar senha"
+        defaultOpen={false}
+        nested
+      >
+        <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
           Para trocar a senha, informe sua senha atual e a nova senha desejada.
         </p>
 
@@ -652,8 +699,8 @@ function ProfileSection({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </Collapsible>
+    </Collapsible>
   );
 }
 
@@ -739,12 +786,13 @@ function PatientsSection({
   }
 
   return (
-    <div className={card}>
-      <div className="mb-1 flex items-center">
-        <span className={sectionTitle}>Pacientes</span>
-        <span className={badgeNew}>Novo</span>
-      </div>
-
+    <Collapsible
+      card={card}
+      sectionTitle={sectionTitle}
+      title="Pacientes"
+      badge={<span className={badgeNew}>Novo</span>}
+      defaultOpen
+    >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Cadastre pacientes para vincular aos compromissos da agenda.
       </p>
@@ -841,12 +889,12 @@ function PatientsSection({
         onConfirm={confirmDeletePatient}
         onCancel={() => setPatientToRemove(null)}
       />
-    </div>
+    </Collapsible>
   );
 }
 
 // -----------------------------------------------------------------------
-//   MEMBROS DA EQUIPE (secretária / assistente)
+//   MEMBROS DA EQUIPE (secretária / assistente / convidado)
 // -----------------------------------------------------------------------
 function MembersSection({
   ownerId,
@@ -863,10 +911,10 @@ function MembersSection({
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("secretary");
-  const [canEditNew, setCanEditNew] = useState(true);
-  const [canCreateNew, setCanCreateNew] = useState(true);
+  const [canEditNew, setCanEditNew] = useState(false);
+  const [canCreateNew, setCanCreateNew] = useState(false);
   const [canViewFinanceNew, setCanViewFinanceNew] = useState(false);
-  const [canManagePatientsNew, setCanManagePatientsNew] = useState(true);
+  const [canManagePatientsNew, setCanManagePatientsNew] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState(null);
   const [removing, setRemoving] = useState(false);
@@ -956,15 +1004,16 @@ function MembersSection({
   }
 
   return (
-    <div className={card}>
-      <div className="mb-1 flex items-center">
-        <span className={sectionTitle}>Usuários e permissões</span>
-        <span className={badgeNew}>Novo</span>
-      </div>
-
+    <Collapsible
+      card={card}
+      sectionTitle={sectionTitle}
+      title="Usuários e permissões"
+      badge={<span className={badgeNew}>Novo</span>}
+      defaultOpen
+    >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
-        Convide secretária(s) ou assistente(s) para acessar a agenda com
-        permissões controladas.
+        Convide secretária(s), assistente(s) ou convidado(s) para acessar a
+        agenda com permissões controladas.
       </p>
 
       <form onSubmit={handleInvite} className="grid gap-2 sm:grid-cols-2">
@@ -985,6 +1034,7 @@ function MembersSection({
           <select className={inputBase} value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="secretary">Secretária</option>
             <option value="assistant">Assistente</option>
+            <option value="guest">Convidado</option>
           </select>
         </div>
 
@@ -1049,7 +1099,11 @@ function MembersSection({
                   {m.invited_email || m.member_user_id}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {m.role === "secretary" ? "Secretária" : "Assistente"}
+                  {m.role === "secretary"
+                    ? "Secretária"
+                    : m.role === "assistant"
+                    ? "Assistente"
+                    : "Convidado"}
                 </div>
               </div>
               <button type="button" onClick={() => handleRemove(m)} className={dangerBtn}>
@@ -1109,7 +1163,7 @@ function MembersSection({
         onConfirm={confirmRemove}
         onCancel={() => setMemberToRemove(null)}
       />
-    </div>
+    </Collapsible>
   );
 }
 
@@ -1169,11 +1223,7 @@ function NotificationsSection({ card, sectionTitle, miniLabel }) {
   }
 
   return (
-    <div className={card}>
-      <div className="mb-1 flex items-center">
-        <span className={sectionTitle}>Notificações</span>
-      </div>
-
+    <Collapsible card={card} sectionTitle={sectionTitle} title="Notificações" defaultOpen>
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Receba um lembrete por e-mail dos seus compromissos.
       </p>
@@ -1203,6 +1253,6 @@ function NotificationsSection({ card, sectionTitle, miniLabel }) {
           />
         </button>
       </div>
-    </div>
+    </Collapsible>
   );
 }
