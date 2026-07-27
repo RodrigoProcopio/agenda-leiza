@@ -279,27 +279,27 @@ export default function EventForm({
       </div>
 
       {/* HORÁRIOS */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="min-w-0">
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
             Início
           </label>
           <input
             type="time"
-            className={inputBase}
+            className={`${inputBase} min-w-0`}
             value={start}
             onChange={(e) => setStart(e.target.value)}
             required
           />
         </div>
 
-        <div>
+        <div className="min-w-0">
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
             Fim
           </label>
           <input
             type="time"
-            className={inputBase}
+            className={`${inputBase} min-w-0`}
             value={end}
             onChange={(e) => setEnd(e.target.value)}
             required
@@ -347,26 +347,26 @@ export default function EventForm({
 
       {/* CAMPOS DE CIRURGIA */}
       {resolvedType === "cirurgia" && canViewFinance && (
-        <div className="grid grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="min-w-0">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Valor (R$)
             </label>
             <input
               type="text"
-              className={inputBase}
+              className={`${inputBase} min-w-0`}
               placeholder="0,00"
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Status pagamento
             </label>
             <select
-              className={inputBase}
+              className={`${inputBase} min-w-0`}
               value={payStatus}
               onChange={(e) => setPayStatus(e.target.value)}
             >

@@ -54,12 +54,6 @@ export default function Settings({
   const inputBase =
     "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50";
 
-  const pillToggle =
-    "inline-flex items-center rounded-full border border-slate-300 bg-slate-100 p-0.5 text-xs shadow-inner dark:border-slate-700 dark:bg-slate-800";
-
-  const pillThumb =
-    "inline-flex items-center justify-center rounded-full bg-white px-2 py-1 text-[11px] font-medium shadow-sm dark:bg-slate-900";
-
   const miniLabel =
     "mb-0.5 block text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400";
 
@@ -176,19 +170,39 @@ export default function Settings({
               </span>
             </div>
 
-            <button type="button" onClick={onToggleTheme} className={pillToggle}>
-              <span
-                className={`${pillThumb} ${
-                  isDark
-                    ? "translate-x-0 bg-slate-900 text-slate-100"
-                    : "bg-white text-slate-800"
-                }`}
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              aria-label={isDark ? "Ativar tema claro" : "Ativar tema escuro"}
+              title={isDark ? "Ativar tema claro" : "Ativar tema escuro"}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${
+                isDark
+                  ? "border-slate-700 bg-slate-800 text-slate-500"
+                  : "border-amber-300 bg-amber-100 text-amber-500"
+              }`}
+            >
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                {isDark ? "Escuro" : "Claro"}
-              </span>
+                <path
+                  d="M9 21h6M10 18.5h4M12 3a6.5 6.5 0 00-3.2 12.16c.53.3.7.87.7 1.34v.5h5v-.5c0-.47.17-1.04.7-1.34A6.5 6.5 0 0012 3z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="currentColor"
+                  fillOpacity={isDark ? 0 : 0.35}
+                />
+              </svg>
             </button>
           </div>
         </div>
+
+        {/* Notificações */}
+        <NotificationsSection card={card} sectionTitle={sectionTitle} miniLabel={miniLabel} />
 
         {/* Pacientes */}
         {canEdit && (
@@ -250,32 +264,10 @@ export default function Settings({
 
         {/* Integração com Google Agenda (em breve) */}
         <div className={card}>
-          <div className="mb-1 flex items-center">
+          <div className="flex items-center">
             <span className={sectionTitle}>Integração com Google Agenda</span>
             <span className={badgeSoon}>Em breve</span>
           </div>
-
-          <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
-            No futuro, será possível conectar a agenda do consultório com o
-            Google Agenda para sincronizar compromissos importantes. Essa
-            integração depende de credenciais OAuth do Google Cloud (Client
-            ID/Secret) que só você pode gerar — por isso ficou de fora desta
-            rodada de melhorias, a seu pedido.
-          </p>
-
-          <ul className="mb-3 list-inside list-disc text-xs text-slate-500 dark:text-slate-400">
-            <li>visualizar atendimentos no Google Agenda</li>
-            <li>receber lembretes em outros dispositivos</li>
-            <li>opção de sincronização manual ou automática</li>
-          </ul>
-
-          <button
-            type="button"
-            disabled
-            className="inline-flex items-center justify-center rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-400 shadow-sm dark:border-slate-700 dark:text-slate-500"
-          >
-            🔗 Conectar conta Google (em breve)
-          </button>
         </div>
 
         {/* Usuários e permissões */}
@@ -734,6 +726,100 @@ function MembersSection({
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+//   NOTIFICAÇÕES POR E-MAIL
+// -----------------------------------------------------------------------
+function NotificationsSection({ card, sectionTitle, miniLabel }) {
+  const toast = useToast();
+  const [enabled, setEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.error("Erro ao carregar preferência de notificações:", error);
+      } else {
+        const stored = data?.user?.user_metadata?.email_notifications;
+        setEnabled(stored !== false); // padrão: ativado
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleToggle() {
+    const next = !enabled;
+    setEnabled(next); // otimista
+    setSaving(true);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { email_notifications: next },
+      });
+      if (error) throw error;
+      toast.show(
+        next
+          ? "Notificações por e-mail ativadas."
+          : "Notificações por e-mail desativadas.",
+        { type: "success" }
+      );
+    } catch (err) {
+      console.error("Erro ao salvar preferência de notificações:", err);
+      setEnabled(!next); // reverte
+      toast.show("Erro ao salvar preferência. Tente novamente.", {
+        type: "error",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={card}>
+      <div className="mb-1 flex items-center">
+        <span className={sectionTitle}>Notificações</span>
+      </div>
+
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+        Receba um lembrete por e-mail dos seus compromissos.
+      </p>
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col">
+          <span className={miniLabel}>E-mail:</span>
+          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
+            {loading ? "Carregando..." : enabled ? "Ativado" : "Desativado"}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          onClick={handleToggle}
+          disabled={loading || saving}
+          className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-60 ${
+            enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"
+          }`}
+        >
+          <span
+            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${
+              enabled ? "left-6" : "left-1"
+            }`}
+          />
+        </button>
       </div>
     </div>
   );
