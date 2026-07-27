@@ -353,7 +353,10 @@ export default function EventForm({
             value={start}
             onChange={(e) => {
               const newStart = e.target.value;
-              console.log("[DEBUG] start onChange", { newStart, editing, endTouched });
+              console.log(
+                "[DEBUG] start onChange " +
+                  JSON.stringify({ newStart, editing, endTouched })
+              );
               setStart(newStart);
               // Preenche o "Fim" automaticamente com +1h enquanto o usuário
               // não tiver alterado esse campo manualmente (só em novos
