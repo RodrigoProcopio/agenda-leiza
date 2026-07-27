@@ -20,9 +20,9 @@ import ConfirmModal from "../components/ConfirmModal.jsx";
 //   SEÇÃO RECOLHÍVEL (menu suspenso)
 // -----------------------------------------------------------------------
 // Cada seção de Configurações usa esse wrapper para poder ser aberta/fechada
-// pelo próprio usuário. `defaultOpen` controla o estado inicial: a maioria
-// das seções vem aberta, exceto "Trocar senha", que vem fechada.
-function Collapsible({ card, sectionTitle, title, badge, defaultOpen = true, nested = false, children }) {
+// pelo próprio usuário. Por padrão todas as seções vêm fechadas; o usuário
+// abre a que quiser ver.
+function Collapsible({ card, sectionTitle, title, badge, defaultOpen = false, nested = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
 
   return (
@@ -207,8 +207,6 @@ export default function Settings({
           card={card}
           sectionTitle={sectionTitle}
           title="Aparência e tema"
-          badge={<span className={badgeNew}>Novo</span>}
-          defaultOpen
         >
           <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
             Escolha entre tema claro ou escuro. Essa configuração afeta todo o
@@ -256,7 +254,12 @@ export default function Settings({
 
         {/* Notificações (apenas para o dono da agenda) */}
         {isOwner && (
-          <NotificationsSection card={card} sectionTitle={sectionTitle} miniLabel={miniLabel} />
+          <NotificationsSection
+            card={card}
+            sectionTitle={sectionTitle}
+            badgeSoon={badgeSoon}
+            miniLabel={miniLabel}
+          />
         )}
 
         {/* Pacientes */}
@@ -281,8 +284,6 @@ export default function Settings({
             card={card}
             sectionTitle={sectionTitle}
             title="Financeiro e exportações"
-            badge={<span className={badgeNew}>Novo</span>}
-            defaultOpen
           >
             <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
               Gere planilhas com os dados da agenda e do financeiro para análise
@@ -324,7 +325,6 @@ export default function Settings({
           sectionTitle={sectionTitle}
           title="Integração com Google Agenda"
           badge={<span className={badgeSoon}>Em breve</span>}
-          defaultOpen
         >
           <p className="text-sm text-slate-600 dark:text-slate-300">
             Em breve será possível sincronizar sua agenda com o Google Agenda.
@@ -351,8 +351,6 @@ export default function Settings({
             card={card}
             sectionTitle={sectionTitle}
             title="Backup e segurança"
-            badge={<span className={badgeNew}>Novo</span>}
-            defaultOpen
           >
             <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
               Gere um arquivo de backup completo com todos os eventos da agenda.
@@ -559,8 +557,6 @@ function ProfileSection({
       card={card}
       sectionTitle={sectionTitle}
       title="Perfil e conta"
-      badge={<span className={badgeNew}>Novo</span>}
-      defaultOpen
     >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Essas informações aparecem no topo do sistema.
@@ -790,8 +786,6 @@ function PatientsSection({
       card={card}
       sectionTitle={sectionTitle}
       title="Pacientes"
-      badge={<span className={badgeNew}>Novo</span>}
-      defaultOpen
     >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Cadastre pacientes para vincular aos compromissos da agenda.
@@ -1008,8 +1002,6 @@ function MembersSection({
       card={card}
       sectionTitle={sectionTitle}
       title="Usuários e permissões"
-      badge={<span className={badgeNew}>Novo</span>}
-      defaultOpen
     >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Convide secretária(s), assistente(s) ou convidado(s) para acessar a
@@ -1170,7 +1162,7 @@ function MembersSection({
 // -----------------------------------------------------------------------
 //   NOTIFICAÇÕES POR E-MAIL
 // -----------------------------------------------------------------------
-function NotificationsSection({ card, sectionTitle, miniLabel }) {
+function NotificationsSection({ card, sectionTitle, badgeSoon, miniLabel }) {
   const toast = useToast();
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -1223,7 +1215,12 @@ function NotificationsSection({ card, sectionTitle, miniLabel }) {
   }
 
   return (
-    <Collapsible card={card} sectionTitle={sectionTitle} title="Notificações" defaultOpen>
+    <Collapsible
+      card={card}
+      sectionTitle={sectionTitle}
+      title="Notificações"
+      badge={<span className={badgeSoon}>Em breve</span>}
+    >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Receba um lembrete por e-mail dos seus compromissos.
       </p>
