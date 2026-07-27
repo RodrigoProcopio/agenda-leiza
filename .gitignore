@@ -9,3 +9,4 @@ dist-ssr/
 *.local
 .DS_Store
 deploy-*.zip
+src/pages/Admin.jsx

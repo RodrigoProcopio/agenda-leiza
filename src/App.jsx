@@ -12,7 +12,7 @@ import Agenda from "./pages/Agenda.jsx";
 import Finance from "./pages/Finance.jsx";
 import Login from "./pages/Login.jsx";
 import Settings from "./pages/Settings.jsx";
-import Admin from "./pages/Admin.jsx";
+import AdminHome from "./pages/AdminHome.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
 
 import { hasConflict } from "./lib/conflicts.js";
@@ -35,6 +35,7 @@ import { getFinanceFilters } from "./lib/financeFiltersStore.js";
 import { resolvePracticeContext } from "./lib/practiceApi.js";
 import { fetchPatients } from "./lib/patientsApi.js";
 import { fetchOwnProfile } from "./lib/profileApi.js";
+import { checkIsPlatformAdmin } from "./lib/adminApi.js";
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 const UNDO_DELETE_MS = 5000;
@@ -239,6 +240,37 @@ function App() {
       console.error("Erro ao atualizar perfil:", err);
     }
   }
+
+  // -----------------------------
+  //   ADMINISTRADOR DA PLATAFORMA (conta exclusiva, sem agenda/financeiro)
+  // -----------------------------
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [adminCheckDone, setAdminCheckDone] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setIsPlatformAdmin(false);
+      setAdminCheckDone(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const result = await checkIsPlatformAdmin();
+        if (!cancelled) setIsPlatformAdmin(result);
+      } catch (err) {
+        console.error("Erro ao verificar admin da plataforma:", err);
+      } finally {
+        if (!cancelled) setAdminCheckDone(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   // -----------------------------
   //   CARREGAR EVENTOS + PACIENTES DO SUPABASE
@@ -1189,8 +1221,6 @@ function App() {
       ? { title: "Agenda", showDate: true }
       : tab === "finance"
       ? { title: "Financeiro", showDate: true }
-      : tab === "admin"
-      ? { title: "Administração", showDate: false }
       : { title: "Configurações", showDate: false };
 
   // -----------------------------
@@ -1210,6 +1240,53 @@ function App() {
 
   if (!user) {
     return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // A conta administrativa da plataforma tem uma experiência totalmente
+  // separada: nada de agenda/pacientes/financeiro, só controle de acesso.
+  if (!adminCheckDone) {
+    return (
+      <div className="min-h-dvh bg-sky-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+        <div className="mx-auto max-w-2xl p-4">Carregando…</div>
+      </div>
+    );
+  }
+
+  if (isPlatformAdmin) {
+    return (
+      <AdminHome
+        profile={profile}
+        refreshProfile={refreshProfile}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // Conta bloqueada pelo administrador: nada de agenda, só o aviso.
+  if (profile?.blocked) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-sky-50 px-4 dark:bg-slate-950">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow dark:bg-slate-900">
+          <div className="mb-3 text-3xl">🚫</div>
+          <h1 className="mb-2 text-lg font-semibold text-slate-900 dark:text-slate-50">
+            Acesso bloqueado
+          </h1>
+          <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
+            O acesso a esta conta foi bloqueado pelo administrador da
+            plataforma. Entre em contato com{" "}
+            <strong>procorptecnologia@gmail.com</strong> para mais
+            informações.
+          </p>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-800"
+          >
+            Sair
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // -----------------------------
@@ -1304,11 +1381,8 @@ function App() {
           refreshPatients={refreshPatients}
           profile={profile}
           refreshProfile={refreshProfile}
-          onOpenAdmin={() => setTab("admin")}
         />
       )}
-
-      {tab === "admin" && <Admin onBack={() => setTab("settings")} />}
 
       {canCreate && <Fab onClick={openNew} />}
       <BottomNav tab={tab} setTab={setTab} showFinance={canViewFinance} />

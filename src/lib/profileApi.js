@@ -7,6 +7,10 @@ function mapRow(r) {
     displayName: r.display_name,
     title: r.title,
     avatarUrl: r.avatar_url,
+    secondaryEmail: r.secondary_email,
+    info: r.info,
+    blocked: !!r.blocked,
+    blockedAt: r.blocked_at,
   };
 }
 
@@ -27,12 +31,21 @@ export async function fetchOwnProfile() {
   if (error) throw error;
 
   return {
-    ...(mapRow(data) || { id: user.id, displayName: null, title: null, avatarUrl: null }),
+    ...(mapRow(data) || {
+      id: user.id,
+      displayName: null,
+      title: null,
+      avatarUrl: null,
+      secondaryEmail: null,
+      info: null,
+      blocked: false,
+      blockedAt: null,
+    }),
     email: user.email,
   };
 }
 
-export async function saveOwnProfile({ displayName, title }) {
+export async function saveOwnProfile({ displayName, title, secondaryEmail, info }) {
   const {
     data: { user },
     error: userError,
@@ -40,16 +53,15 @@ export async function saveOwnProfile({ displayName, title }) {
 
   if (userError || !user) throw new Error("Sessão inválida.");
 
+  const payload = { id: user.id };
+  if (displayName !== undefined) payload.display_name = displayName || null;
+  if (title !== undefined) payload.title = title || null;
+  if (secondaryEmail !== undefined) payload.secondary_email = secondaryEmail || null;
+  if (info !== undefined) payload.info = info || null;
+
   const { data, error } = await supabase
     .from("profiles")
-    .upsert(
-      {
-        id: user.id,
-        display_name: displayName || null,
-        title: title || null,
-      },
-      { onConflict: "id" }
-    )
+    .upsert(payload, { onConflict: "id" })
     .select("*")
     .single();
 
@@ -88,4 +100,18 @@ export async function uploadOwnAvatar(file) {
   if (updateError) throw updateError;
 
   return avatarUrl;
+}
+
+// Troca o e-mail de login da própria conta. O Supabase dispara um e-mail de
+// confirmação (para o e-mail novo, e possivelmente para o antigo também,
+// dependendo da configuração do projeto) antes de efetivar a troca.
+export async function changeOwnEmail(newEmail) {
+  const { error } = await supabase.auth.updateUser({ email: newEmail });
+  if (error) throw error;
+}
+
+// Troca a senha da própria conta (usuário já autenticado).
+export async function changeOwnPassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
 }

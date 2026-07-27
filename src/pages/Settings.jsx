@@ -13,7 +13,6 @@ import {
   deletePatient,
 } from "../lib/patientsApi.js";
 import { saveOwnProfile, uploadOwnAvatar } from "../lib/profileApi.js";
-import { checkIsPlatformAdmin } from "../lib/adminApi.js";
 import { useToast } from "../components/Toast.jsx";
 
 export default function Settings({
@@ -29,7 +28,6 @@ export default function Settings({
   refreshPatients,
   profile,
   refreshProfile,
-  onOpenAdmin,
 }) {
   const toast = useToast();
   const [backupLoading, setBackupLoading] = useState(false);
@@ -301,15 +299,6 @@ export default function Settings({
           />
         )}
 
-        {/* Painel administrativo da plataforma (apenas admin) */}
-        <AdminEntrySection
-          onOpenAdmin={onOpenAdmin}
-          card={card}
-          sectionTitle={sectionTitle}
-          badgeNew={badgeNew}
-          primaryBtn={primaryBtn}
-        />
-
         {/* Backup e segurança */}
         <div className={card}>
           <div className="mb-1 flex items-center">
@@ -548,42 +537,6 @@ function ProfileSection({
           </button>
         </div>
       </form>
-    </div>
-  );
-}
-
-// -----------------------------------------------------------------------
-//   ENTRADA PARA O PAINEL ADMINISTRATIVO (apenas admin da plataforma)
-// -----------------------------------------------------------------------
-function AdminEntrySection({ onOpenAdmin, card, sectionTitle, badgeNew, primaryBtn }) {
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    checkIsPlatformAdmin().then((result) => {
-      if (!cancelled) setIsAdmin(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!isAdmin) return null;
-
-  return (
-    <div className={card}>
-      <div className="mb-1 flex items-center">
-        <span className={sectionTitle}>Administração da plataforma</span>
-        <span className={badgeNew}>Novo</span>
-      </div>
-
-      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
-        Criar contas de médicos, enviar convites e acompanhar o uso da plataforma.
-      </p>
-
-      <button type="button" onClick={onOpenAdmin} className={primaryBtn}>
-        Abrir painel administrativo
-      </button>
     </div>
   );
 }

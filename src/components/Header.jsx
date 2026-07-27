@@ -10,6 +10,9 @@ export default function Header({ title, showDate = true, onLogout, profile, emai
     displayTitle || displayName
       ? [displayTitle, displayName].filter(Boolean).join(" ")
       : "Dr(a)";
+
+  const initial = (displayName?.[0] || email?.[0] || "?").toUpperCase();
+
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-sky-50/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
       <div className="mx-auto max-w-4xl px-4 py-3">
@@ -18,12 +21,16 @@ export default function Header({ title, showDate = true, onLogout, profile, emai
           {/* Esquerda */}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              {profile?.avatarUrl && (
+              {profile?.avatarUrl ? (
                 <img
                   src={profile.avatarUrl}
                   alt=""
                   className="h-6 w-6 flex-shrink-0 rounded-full object-cover"
                 />
+              ) : (
+                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-semibold text-white dark:bg-sky-500">
+                  {initial}
+                </div>
               )}
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-blue-900 dark:text-sky-200">
