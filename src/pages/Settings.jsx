@@ -33,6 +33,7 @@ export default function Settings({
   const toast = useToast();
   const [backupLoading, setBackupLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
+  const [pendingRestoreFile, setPendingRestoreFile] = useState(null);
 
   const card =
     "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -99,20 +100,19 @@ export default function Settings({
     }
   }
 
-  async function handleRestoreBackupChange(event) {
+  function handleRestoreBackupChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
 
     // permite escolher o mesmo arquivo novamente se der erro
     event.target.value = "";
 
-    const confirma = window.confirm(
-      "Restaurar o backup vai substituir TODOS os eventos atuais da agenda pelos eventos do arquivo selecionado.\n\nDeseja continuar?"
-    );
+    setPendingRestoreFile(file);
+  }
 
-    if (!confirma) {
-      return;
-    }
+  async function confirmRestoreBackup() {
+    const file = pendingRestoreFile;
+    if (!file) return;
 
     try {
       setRestoreLoading(true);
@@ -143,6 +143,7 @@ export default function Settings({
       );
     } finally {
       setRestoreLoading(false);
+      setPendingRestoreFile(null);
     }
   }
 
@@ -372,6 +373,15 @@ export default function Settings({
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        open={!!pendingRestoreFile}
+        title="Restaurar backup"
+        description="Restaurar o backup vai substituir TODOS os eventos atuais da agenda pelos eventos do arquivo selecionado. Deseja continuar?"
+        confirmLabel={restoreLoading ? "Restaurando..." : "Restaurar"}
+        onConfirm={confirmRestoreBackup}
+        onCancel={() => setPendingRestoreFile(null)}
+      />
     </div>
   );
 }
@@ -563,6 +573,7 @@ function PatientsSection({
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [patientToRemove, setPatientToRemove] = useState(null);
 
   function resetForm() {
     setName("");
@@ -601,9 +612,13 @@ function PatientsSection({
     setEmail(p.email || "");
   }
 
-  async function handleDelete(p) {
-    const ok = window.confirm(`Remover o paciente "${p.name}"?`);
-    if (!ok) return;
+  function handleDelete(p) {
+    setPatientToRemove(p);
+  }
+
+  async function confirmDeletePatient() {
+    const p = patientToRemove;
+    if (!p) return;
 
     try {
       await deletePatient(p.id);
@@ -613,6 +628,8 @@ function PatientsSection({
     } catch (err) {
       console.error("Erro ao remover paciente:", err);
       toast.show("Erro ao remover paciente.", { type: "error" });
+    } finally {
+      setPatientToRemove(null);
     }
   }
 
@@ -703,6 +720,17 @@ function PatientsSection({
           </div>
         ))}
       </div>
+
+      <ConfirmModal
+        open={!!patientToRemove}
+        title="Remover paciente"
+        description={
+          patientToRemove ? `Remover o paciente "${patientToRemove.name}"?` : ""
+        }
+        confirmLabel="Remover"
+        onConfirm={confirmDeletePatient}
+        onCancel={() => setPatientToRemove(null)}
+      />
     </div>
   );
 }

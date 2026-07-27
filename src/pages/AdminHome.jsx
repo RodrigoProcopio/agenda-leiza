@@ -13,6 +13,7 @@ import {
   changeOwnPassword,
 } from "../lib/profileApi.js";
 import { useToast } from "../components/Toast.jsx";
+import ConfirmModal from "../components/ConfirmModal.jsx";
 
 const card =
   "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -96,6 +97,7 @@ function AdminProfileSection({ profile, refreshProfile, toast }) {
   const [saving, setSaving] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [confirmingEmailChange, setConfirmingEmailChange] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -142,15 +144,13 @@ function AdminProfileSection({ profile, refreshProfile, toast }) {
     }
   }
 
-  async function handleChangeEmail(e) {
+  function handleChangeEmail(e) {
     e.preventDefault();
     if (!newEmail.trim()) return;
+    setConfirmingEmailChange(true);
+  }
 
-    const ok = window.confirm(
-      `Trocar o e-mail de login para "${newEmail.trim()}"? Você vai precisar confirmar pelo link enviado antes que a troca seja concluída.`
-    );
-    if (!ok) return;
-
+  async function confirmChangeEmail() {
     try {
       setSavingEmail(true);
       await changeOwnEmail(newEmail.trim());
@@ -164,6 +164,7 @@ function AdminProfileSection({ profile, refreshProfile, toast }) {
       toast.show(err?.message || "Erro ao trocar e-mail.", { type: "error" });
     } finally {
       setSavingEmail(false);
+      setConfirmingEmailChange(false);
     }
   }
 
@@ -261,6 +262,15 @@ function AdminProfileSection({ profile, refreshProfile, toast }) {
           A troca só é concluída após confirmar o link enviado para o novo e-mail.
         </p>
       </div>
+
+      <ConfirmModal
+        open={confirmingEmailChange}
+        title="Trocar e-mail de login"
+        description={`Trocar o e-mail de login para "${newEmail.trim()}"? Você vai precisar confirmar pelo link enviado antes que a troca seja concluída.`}
+        confirmLabel={savingEmail ? "Enviando..." : "Trocar e-mail"}
+        onConfirm={confirmChangeEmail}
+        onCancel={() => setConfirmingEmailChange(false)}
+      />
     </div>
   );
 }
@@ -346,6 +356,7 @@ function AccountsSection({ toast }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
 
   async function load() {
     try {
@@ -367,44 +378,37 @@ function AccountsSection({ toast }) {
 
   const totalMembers = accounts.reduce((acc, a) => acc + (a.membersCount || 0), 0);
 
-  async function handleToggleBlocked(a) {
-    const next = !a.blocked;
-    const ok = window.confirm(
-      next
-        ? `Bloquear o acesso de "${a.email}"? A pessoa verá uma tela informando o bloqueio no próximo login.`
-        : `Desbloquear o acesso de "${a.email}"?`
-    );
-    if (!ok) return;
-
-    try {
-      setBusyId(a.userId);
-      await setAccountBlocked(a.userId, next);
-      toast.show(next ? "Conta bloqueada." : "Conta desbloqueada.", { type: "success" });
-      await load();
-    } catch (err) {
-      console.error("Erro ao alterar bloqueio:", err);
-      toast.show(err?.message || "Erro ao alterar bloqueio.", { type: "error" });
-    } finally {
-      setBusyId(null);
-    }
+  function handleToggleBlocked(a) {
+    setPendingConfirm({ kind: "toggleBlocked", account: a, next: !a.blocked });
   }
 
-  async function handleDelete(a) {
-    const ok = window.confirm(
-      `Excluir permanentemente a conta "${a.email}"? Isso apaga a agenda, pacientes e financeiro dessa conta. Essa ação não pode ser desfeita.`
-    );
-    if (!ok) return;
+  function handleDelete(a) {
+    setPendingConfirm({ kind: "delete", account: a });
+  }
+
+  async function confirmPending() {
+    if (!pendingConfirm) return;
+    const { kind, account: a } = pendingConfirm;
 
     try {
       setBusyId(a.userId);
-      await deleteAccount(a.userId);
-      toast.show("Conta excluída.", { type: "info" });
+
+      if (kind === "toggleBlocked") {
+        const next = pendingConfirm.next;
+        await setAccountBlocked(a.userId, next);
+        toast.show(next ? "Conta bloqueada." : "Conta desbloqueada.", { type: "success" });
+      } else if (kind === "delete") {
+        await deleteAccount(a.userId);
+        toast.show("Conta excluída.", { type: "info" });
+      }
+
       await load();
     } catch (err) {
-      console.error("Erro ao excluir conta:", err);
-      toast.show(err?.message || "Erro ao excluir conta.", { type: "error" });
+      console.error("Erro ao executar ação na conta:", err);
+      toast.show(err?.message || "Erro ao executar ação.", { type: "error" });
     } finally {
       setBusyId(null);
+      setPendingConfirm(null);
     }
   }
 
@@ -519,6 +523,29 @@ function AccountsSection({ toast }) {
           </div>
         ))}
       </div>
+
+      <ConfirmModal
+        open={!!pendingConfirm}
+        title={
+          pendingConfirm?.kind === "delete"
+            ? "Excluir conta"
+            : pendingConfirm?.next
+            ? "Bloquear conta"
+            : "Desbloquear conta"
+        }
+        description={
+          pendingConfirm?.kind === "delete"
+            ? `Excluir permanentemente a conta "${pendingConfirm.account.email}"? Isso apaga a agenda, pacientes e financeiro dessa conta. Essa ação não pode ser desfeita.`
+            : pendingConfirm?.kind === "toggleBlocked"
+            ? pendingConfirm.next
+              ? `Bloquear o acesso de "${pendingConfirm.account.email}"? A pessoa verá uma tela informando o bloqueio no próximo login.`
+              : `Desbloquear o acesso de "${pendingConfirm.account.email}"?`
+            : ""
+        }
+        confirmLabel={pendingConfirm?.kind === "delete" ? "Excluir" : "Confirmar"}
+        onConfirm={confirmPending}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
