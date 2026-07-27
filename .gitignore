@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist.bak_*/
+.dist_trash_*/
 dist-ssr/
 .env
 .env.local
