@@ -8,6 +8,8 @@ function mapRow(r) {
     amount: Number(r.amount),
     expenseDate: r.expense_date,
     notes: r.notes,
+    createdByName: r.created_by_name ?? null,
+    createdByUserId: r.created_by_user_id ?? null,
   };
 }
 

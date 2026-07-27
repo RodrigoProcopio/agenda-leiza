@@ -704,6 +704,11 @@ function PatientsSection({
               <div className="text-xs text-slate-500 dark:text-slate-400">
                 {[p.phone, p.email].filter(Boolean).join(" · ")}
               </div>
+              {p.createdByName && (
+                <div className="text-[11px] text-slate-400 dark:text-slate-500">
+                  Criado por: {p.createdByName}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 gap-1">
               <button

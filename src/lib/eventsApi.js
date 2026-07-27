@@ -23,6 +23,8 @@ function mapRow(r) {
     recurrence: r.recurrence,
     isException: r.is_exception,
     patientId: r.patient_id ?? null,
+    createdByName: r.created_by_name ?? null,
+    createdByUserId: r.created_by_user_id ?? null,
   };
 }
 

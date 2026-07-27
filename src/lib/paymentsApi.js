@@ -8,6 +8,8 @@ function mapRow(r) {
     method: r.method,
     paidAt: r.paid_at,
     notes: r.notes,
+    createdByName: r.created_by_name ?? null,
+    createdByUserId: r.created_by_user_id ?? null,
   };
 }
 

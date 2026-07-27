@@ -281,6 +281,9 @@ export default function Finance({ events, onTogglePaid, onOpen, ownerId, canEdit
 
                   <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                     {dateLabel}
+                    {e.createdByName && (
+                      <span className="text-slate-400"> · {e.createdByName}</span>
+                    )}
                   </div>
 
                   {!!e.notes && (
@@ -458,6 +461,9 @@ function PaymentsPanel({ event, ownerId, canEdit }) {
               R$ {asMoneyBRL(p.amount)} ·{" "}
               {PAYMENT_METHODS.find((m) => m.id === p.method)?.label || p.method} ·{" "}
               {p.paidAt ? new Date(p.paidAt + "T00:00:00").toLocaleDateString("pt-BR") : ""}
+              {p.createdByName && (
+                <span className="text-slate-400"> · {p.createdByName}</span>
+              )}
             </span>
             {canEdit && (
               <button
@@ -647,6 +653,9 @@ function ExpensesSection({ ownerId, monthKey, card }) {
               {e.expenseDate
                 ? new Date(e.expenseDate + "T00:00:00").toLocaleDateString("pt-BR")
                 : ""}
+              {e.createdByName && (
+                <span className="text-slate-400"> · {e.createdByName}</span>
+              )}
             </span>
             <button onClick={() => handleDelete(e)} className="text-xs text-red-500 hover:underline">
               remover

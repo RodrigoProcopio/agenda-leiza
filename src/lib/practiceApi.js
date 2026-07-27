@@ -106,6 +106,25 @@ export async function updateMemberPermissions(id, { canEdit, canCreate, canViewF
 }
 
 export async function removeMember(id) {
-  const { error } = await supabase.from("practice_members").delete().eq("id", id);
-  if (error) throw error;
+  // Remove o acesso E exclui a conta de login do membro (a conta só existe
+  // para acessar essa prática, então não faz sentido deixá-la órfã).
+  const { data, error } = await supabase.functions.invoke("remove-member", {
+    body: { memberId: id },
+  });
+
+  if (error) {
+    const message = error?.context?.body
+      ? await error.context
+          .json()
+          .then((b) => b?.error)
+          .catch(() => null)
+      : null;
+    throw new Error(message || error.message || "Erro ao remover membro.");
+  }
+
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
 }

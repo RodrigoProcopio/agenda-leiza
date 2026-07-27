@@ -293,6 +293,12 @@ export default function EventForm({
         </div>
       )}
 
+      {editing && initial?.createdByName && (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+          Criado por: {initial.createdByName}
+        </p>
+      )}
+
       {/* TIPOS */}
       <div className="flex gap-2 rounded-2xl bg-slate-100 p-1 dark:bg-slate-900">
         {TYPES.map((t) => {
