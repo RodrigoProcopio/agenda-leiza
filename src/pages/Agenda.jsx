@@ -128,9 +128,9 @@ const fcEvents = useMemo(() => {
 
   return (
     <div className="mx-auto max-w-4xl p-2 pb-24 md:p-4 md:pb-6">
-      <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
+      <div className="mt-2 flex h-[calc(100dvh-200px)] flex-col rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
         {/* Toolbar do APP (mobile-friendly) */}
-        <div className="px-1 pb-2 pt-1">
+        <div className="shrink-0 px-1 pb-2 pt-1">
           {/* Linha 1 */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -202,8 +202,9 @@ const fcEvents = useMemo(() => {
           </div>
         </div>
 
-        {/* Altura com scroll interno */}
-        <div className="h-[calc(100dvh-290px)] rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-transparent">
+        {/* Altura com scroll interno — ocupa o espaço restante do card,
+            independente de quanto a toolbar acima cresce/encolhe */}
+        <div className="min-h-0 flex-1 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-transparent">
           <FullCalendar
             ref={calendarRef}
             plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}

@@ -15,14 +15,13 @@ export default function Modal({ open, title, children, onClose }) {
       {/* conteúdo */}
       <div
         className="
-          absolute inset-x-0 bottom-0 rounded-t-2xl
+          absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col rounded-t-2xl
           border border-slate-200 bg-white text-slate-900 shadow-xl
-          md:inset-0 md:m-auto md:max-w-lg md:rounded-2xl
+          md:inset-0 md:m-auto md:max-h-[85vh] md:max-w-lg md:rounded-2xl
           dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50
-          p-4
         "
       >
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 p-4 pb-3 dark:border-slate-800">
           <h2 className="text-lg font-semibold">{title}</h2>
 
           <button
@@ -33,7 +32,7 @@ export default function Modal({ open, title, children, onClose }) {
           </button>
         </div>
 
-        {children}
+        <div className="overflow-y-auto p-4">{children}</div>
       </div>
     </div>
   );
