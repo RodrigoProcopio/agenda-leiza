@@ -73,6 +73,15 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  // Detecta se a página foi aberta a partir de um link de CONVITE (Supabase
+  // manda #access_token=...&type=invite na URL). Precisa ser lido de forma
+  // síncrona logo na primeira renderização, antes do supabase-js processar
+  // e limpar esse hash da URL.
+  const [needsInviteSetup, setNeedsInviteSetup] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const raw = `${window.location.hash || ""}${window.location.search || ""}`;
+    return raw.includes("type=invite");
+  });
 
   // Contexto de prática: quem é o "dono" dos dados e quais permissões o
   // usuário logado tem (dono sempre tem tudo; membro convidado tem o que
@@ -1228,6 +1237,18 @@ function App() {
   // -----------------------------
   if (passwordRecovery) {
     return <ResetPassword onDone={() => setPasswordRecovery(false)} />;
+  }
+
+  if (needsInviteSetup) {
+    return (
+      <ResetPassword
+        mode="invite"
+        onDone={() => {
+          setNeedsInviteSetup(false);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }}
+      />
+    );
   }
 
   if (authLoading) {

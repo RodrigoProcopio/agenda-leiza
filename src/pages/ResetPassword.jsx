@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { supabase } from "../lib/supabase.js";
 
-export default function ResetPassword({ onDone }) {
+export default function ResetPassword({ onDone, mode = "recovery" }) {
+  const isInvite = mode === "invite";
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,15 +41,19 @@ export default function ResetPassword({ onDone }) {
     <div className="min-h-dvh flex items-center justify-center bg-sky-50 dark:bg-slate-950">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow dark:bg-slate-900">
         <h1 className="mb-1 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          Definir nova senha
+          {isInvite ? "Bem-vindo(a)!" : "Definir nova senha"}
         </h1>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Escolha uma nova senha para sua conta.
+          {isInvite
+            ? "Antes de continuar, crie uma senha para acessar sua conta."
+            : "Escolha uma nova senha para sua conta."}
         </p>
 
         {done ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-            Senha atualizada com sucesso! Entrando...
+            {isInvite
+              ? "Senha criada com sucesso! Entrando..."
+              : "Senha atualizada com sucesso! Entrando..."}
           </div>
         ) : (
           <form className="space-y-3" onSubmit={handleSubmit}>
@@ -89,7 +94,7 @@ export default function ResetPassword({ onDone }) {
               disabled={loading}
               className="mt-2 w-full rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Salvando..." : "Salvar nova senha"}
+              {loading ? "Salvando..." : isInvite ? "Criar senha e entrar" : "Salvar nova senha"}
             </button>
           </form>
         )}
