@@ -1321,6 +1321,7 @@ function App() {
           repeatUntil,
           weekdays: isWeekly ? rec.weekdays ?? [] : [],
           patientId: editing.patientId ?? null,
+          createdByName: editing.createdByName ?? null,
         };
       })()
     : candidate;
