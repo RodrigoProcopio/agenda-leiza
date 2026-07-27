@@ -8,6 +8,7 @@ function mapRow(r) {
     email: r.email,
     birthDate: r.birth_date,
     notes: r.notes,
+    createdAt: r.created_at,
   };
 }
 

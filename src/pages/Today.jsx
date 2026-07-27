@@ -5,6 +5,7 @@ import {
   localTodayKey,
   formatHHMMFromIso,
 } from "../lib/time.js";
+import DashboardSummary from "../components/DashboardSummary.jsx";
 
 function badge(type) {
   if (type === "consultorio")
@@ -32,7 +33,7 @@ function isOngoing(ev) {
   return start <= now && end >= now;
 }
 
-export default function Today({ events, onOpen }) {
+export default function Today({ events, onOpen, patients, ownerId, showDashboard = false }) {
   const todayKey = localTodayKey();
 
   const todayEvents = useMemo(() => {
@@ -94,6 +95,10 @@ export default function Today({ events, onOpen }) {
 
   return (
     <div className="mx-auto max-w-2xl p-4 pb-24 md:pb-6">
+      {showDashboard && (
+        <DashboardSummary events={events} patients={patients} ownerId={ownerId} />
+      )}
+
       {/* Card principal */}
       {primary && (
         <div

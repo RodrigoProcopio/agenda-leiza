@@ -1225,6 +1225,9 @@ function App() {
         <Today
           events={eventsWithRecurrenceApplied}
           onOpen={openEdit}
+          patients={patients}
+          ownerId={ownerId}
+          showDashboard={isOwner}
         />
       )}
 
