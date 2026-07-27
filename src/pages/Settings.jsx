@@ -12,7 +12,7 @@ import {
   updatePatient,
   deletePatient,
 } from "../lib/patientsApi.js";
-import { saveOwnProfile, uploadOwnAvatar } from "../lib/profileApi.js";
+import { saveOwnProfile, uploadOwnAvatar, changeOwnPassword } from "../lib/profileApi.js";
 import { useToast } from "../components/Toast.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
 
@@ -25,6 +25,7 @@ export default function Settings({
   isOwner = true,
   canEdit = true,
   canViewFinance = true,
+  canManagePatients = true,
   patients = [],
   refreshPatients,
   profile,
@@ -218,11 +219,13 @@ export default function Settings({
           </div>
         </div>
 
-        {/* Notificações */}
-        <NotificationsSection card={card} sectionTitle={sectionTitle} miniLabel={miniLabel} />
+        {/* Notificações (apenas para o dono da agenda) */}
+        {isOwner && (
+          <NotificationsSection card={card} sectionTitle={sectionTitle} miniLabel={miniLabel} />
+        )}
 
         {/* Pacientes */}
-        {canEdit && (
+        {canManagePatients && (
           <PatientsSection
             ownerId={ownerId}
             patients={patients}
@@ -301,77 +304,75 @@ export default function Settings({
           />
         )}
 
-        {/* Backup e segurança */}
-        <div className={card}>
-          <div className="mb-1 flex items-center">
-            <span className={sectionTitle}>Backup e segurança</span>
-            <span className={badgeNew}>Novo</span>
-          </div>
-
-          <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
-            Gere um arquivo de backup completo com todos os eventos da agenda.
-            Esse arquivo pode ser guardado como cópia de segurança ou usado para
-            migrações futuras.
-          </p>
-
-          <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
-            <div>
-              <span className={miniLabel}>Conteúdo do backup:</span>
+        {/* Backup e segurança (apenas para o dono da agenda) */}
+        {isOwner && (
+          <div className={card}>
+            <div className="mb-1 flex items-center">
+              <span className={sectionTitle}>Backup e segurança</span>
+              <span className={badgeNew}>Novo</span>
             </div>
-            <ul className="list-inside list-disc">
-              <li>todos os eventos da agenda (consultório, cirurgias, pessoal)</li>
-              <li>detalhes de cirurgias (valores, status de pagamento, notas)</li>
-              <li>dados básicos da usuária (id, e-mail do Supabase)</li>
-            </ul>
+
+            <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
+              Gere um arquivo de backup completo com todos os eventos da agenda.
+              Esse arquivo pode ser guardado como cópia de segurança ou usado para
+              migrações futuras.
+            </p>
+
+            <div className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
+              <div>
+                <span className={miniLabel}>Conteúdo do backup:</span>
+              </div>
+              <ul className="list-inside list-disc">
+                <li>todos os eventos da agenda (consultório, cirurgias, pessoal)</li>
+                <li>detalhes de cirurgias (valores, status de pagamento, notas)</li>
+                <li>dados básicos da usuária (id, e-mail do Supabase)</li>
+              </ul>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleBackupClick}
+              disabled={backupLoading}
+              className={`${primaryBtn} mt-3 flex w-full items-center justify-center gap-2`}
+            >
+              🛡️{" "}
+              {backupLoading
+                ? "Gerando backup..."
+                : "Baixar backup completo (JSON)"}
+            </button>
+
+            {/* Input escondido para restaurar backup */}
+            <input
+              type="file"
+              accept="application/json"
+              id="backup-file-input"
+              className="hidden"
+              onChange={handleRestoreBackupChange}
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                const input = document.getElementById("backup-file-input");
+                if (input && !restoreLoading) {
+                  input.click();
+                }
+              }}
+              disabled={restoreLoading}
+              className={`${outlineBtn} mt-2 flex w-full items-center justify-center gap-2`}
+            >
+              📤{" "}
+              {restoreLoading
+                ? "Restaurando backup..."
+                : "Restaurar a partir de backup (JSON)"}
+            </button>
+
+            <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+              Atenção: a restauração vai substituir todos os eventos atuais da
+              agenda pelos eventos contidos no arquivo de backup selecionado.
+            </p>
           </div>
-
-          <button
-            type="button"
-            onClick={handleBackupClick}
-            disabled={backupLoading}
-            className={`${primaryBtn} mt-3 flex w-full items-center justify-center gap-2`}
-          >
-            🛡️{" "}
-            {backupLoading
-              ? "Gerando backup..."
-              : "Baixar backup completo (JSON)"}
-          </button>
-
-          {isOwner && (
-            <>
-              {/* Input escondido para restaurar backup */}
-              <input
-                type="file"
-                accept="application/json"
-                id="backup-file-input"
-                className="hidden"
-                onChange={handleRestoreBackupChange}
-              />
-
-              <button
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById("backup-file-input");
-                  if (input && !restoreLoading) {
-                    input.click();
-                  }
-                }}
-                disabled={restoreLoading}
-                className={`${outlineBtn} mt-2 flex w-full items-center justify-center gap-2`}
-              >
-                📤{" "}
-                {restoreLoading
-                  ? "Restaurando backup..."
-                  : "Restaurar a partir de backup (JSON)"}
-              </button>
-
-              <p className="mt-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                Atenção: a restauração vai substituir todos os eventos atuais da
-                agenda pelos eventos contidos no arquivo de backup selecionado.
-              </p>
-            </>
-          )}
-        </div>
+        )}
       </div>
 
       <ConfirmModal
@@ -409,6 +410,11 @@ function ProfileSection({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
   useEffect(() => {
     if (!profile) return;
     setDisplayName(profile.displayName || "");
@@ -437,6 +443,54 @@ function ProfileSection({
       toast.show(err?.message || "Erro ao salvar perfil.", { type: "error" });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleChangePassword(e) {
+    e.preventDefault();
+
+    if (newPassword.length < 6) {
+      toast.show("A nova senha precisa ter pelo menos 6 caracteres.", { type: "error" });
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      toast.show("As senhas novas não coincidem.", { type: "error" });
+      return;
+    }
+
+    if (!profile?.email) {
+      toast.show("Não foi possível confirmar seu e-mail. Recarregue a página e tente novamente.", {
+        type: "error",
+      });
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+
+      // Confirma a senha atual reautenticando antes de trocar, para evitar
+      // que alguém com a sessão aberta troque a senha sem saber a atual.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: profile.email,
+        password: oldPassword,
+      });
+
+      if (signInError) {
+        toast.show("Senha atual incorreta.", { type: "error" });
+        return;
+      }
+
+      await changeOwnPassword(newPassword);
+      toast.show("Senha atualizada com sucesso.", { type: "success" });
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+    } catch (err) {
+      console.error("Erro ao trocar senha:", err);
+      toast.show(err?.message || "Erro ao trocar senha.", { type: "error" });
+    } finally {
+      setChangingPassword(false);
     }
   }
 
@@ -548,6 +602,57 @@ function ProfileSection({
           </button>
         </div>
       </form>
+
+      <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-800">
+        <span className={sectionTitle}>Trocar senha</span>
+        <p className="mb-3 mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Para trocar a senha, informe sua senha atual e a nova senha desejada.
+        </p>
+
+        <form onSubmit={handleChangePassword} className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <span className={miniLabel}>Senha atual</span>
+            <input
+              type="password"
+              className={inputBase}
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          <div>
+            <span className={miniLabel}>Nova senha</span>
+            <input
+              type="password"
+              className={inputBase}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </div>
+
+          <div>
+            <span className={miniLabel}>Confirmar nova senha</span>
+            <input
+              type="password"
+              className={inputBase}
+              value={confirmNewPassword}
+              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <button type="submit" disabled={changingPassword} className={primaryBtn}>
+              {changingPassword ? "Trocando..." : "Trocar senha"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -761,6 +866,7 @@ function MembersSection({
   const [canEditNew, setCanEditNew] = useState(true);
   const [canCreateNew, setCanCreateNew] = useState(true);
   const [canViewFinanceNew, setCanViewFinanceNew] = useState(false);
+  const [canManagePatientsNew, setCanManagePatientsNew] = useState(true);
   const [inviting, setInviting] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState(null);
   const [removing, setRemoving] = useState(false);
@@ -795,6 +901,7 @@ function MembersSection({
         canEdit: canEditNew,
         canCreate: canCreateNew,
         canViewFinance: canViewFinanceNew,
+        canManagePatients: canManagePatientsNew,
       });
       toast.show("Convite enviado com sucesso.", { type: "success" });
       setEmail("");
@@ -813,6 +920,10 @@ function MembersSection({
       canCreate: field === "canCreate" ? !member.can_create : member.can_create !== false,
       canViewFinance:
         field === "canViewFinance" ? !member.can_view_finance : !!member.can_view_finance,
+      canManagePatients:
+        field === "canManagePatients"
+          ? !member.can_manage_patients
+          : member.can_manage_patients !== false,
     };
 
     try {
@@ -902,6 +1013,14 @@ function MembersSection({
             />
             Vê financeiro
           </label>
+          <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={canManagePatientsNew}
+              onChange={(e) => setCanManagePatientsNew(e.target.checked)}
+            />
+            Pode gerenciar pacientes
+          </label>
         </div>
 
         <div className="sm:col-span-2">
@@ -962,6 +1081,14 @@ function MembersSection({
                   onChange={() => togglePerm(m, "canViewFinance")}
                 />
                 Vê financeiro
+              </label>
+              <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={m.can_manage_patients !== false}
+                  onChange={() => togglePerm(m, "canManagePatients")}
+                />
+                Pode gerenciar pacientes
               </label>
             </div>
           </div>

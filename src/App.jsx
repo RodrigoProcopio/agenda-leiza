@@ -93,6 +93,7 @@ function App() {
   const canCreate = practiceCtx ? practiceCtx.canCreate !== false : true;
   const canViewFinance = practiceCtx ? !!practiceCtx.canViewFinance : true;
   const isOwner = practiceCtx ? !!practiceCtx.isOwner : true;
+  const canManagePatients = practiceCtx ? practiceCtx.canManagePatients !== false : true;
 
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
@@ -1399,6 +1400,7 @@ function App() {
           isOwner={isOwner}
           canEdit={canEdit}
           canViewFinance={canViewFinance}
+          canManagePatients={canManagePatients}
           patients={patients}
           refreshPatients={refreshPatients}
           profile={profile}
