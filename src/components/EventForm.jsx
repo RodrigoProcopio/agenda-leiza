@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toUtcISOString } from "../lib/time.js";
+import { createPatient } from "../lib/patientsApi.js";
+
+const NEW_PATIENT_VALUE = "__new_patient__";
 
 const TYPES = [
   { id: "consultorio", label: "Consultório" },
@@ -48,9 +51,24 @@ export default function EventForm({
   conflictWith,        // evento em conflito (se existir)
   onChangeCandidate,   // callback para o App calcular conflito em tempo real
   patients = [],
+  refreshPatients,
+  ownerId,
   canViewFinance = true,
   canEdit = true,
+  canCreate = true,
 }) {
+  const editing = !!(initial && initial.id);
+  const canModify = editing ? canEdit : canCreate;
+
+  // -----------------------------
+  //   CADASTRO RÁPIDO DE PACIENTE
+  // -----------------------------
+  const [showNewPatient, setShowNewPatient] = useState(false);
+  const [newPatientName, setNewPatientName] = useState("");
+  const [newPatientPhone, setNewPatientPhone] = useState("");
+  const [savingNewPatient, setSavingNewPatient] = useState(false);
+  const [newPatientError, setNewPatientError] = useState(null);
+
   // -----------------------------
   //   ESTADO COM DEFAULTS
   // -----------------------------
@@ -147,6 +165,37 @@ export default function EventForm({
   // -----------------------------
   //   HANDLERS
   // -----------------------------
+  async function handleSaveNewPatient() {
+    if (!newPatientName.trim()) {
+      setNewPatientError("Informe o nome do paciente.");
+      return;
+    }
+    setSavingNewPatient(true);
+    setNewPatientError(null);
+    try {
+      const created = await createPatient(ownerId, {
+        name: newPatientName.trim(),
+        phone: newPatientPhone.trim(),
+      });
+      if (refreshPatients) await refreshPatients();
+      setPatientId(created.id);
+      setShowNewPatient(false);
+      setNewPatientName("");
+      setNewPatientPhone("");
+    } catch (err) {
+      setNewPatientError(err?.message || "Erro ao cadastrar paciente.");
+    } finally {
+      setSavingNewPatient(false);
+    }
+  }
+
+  function handleCancelNewPatient() {
+    setShowNewPatient(false);
+    setNewPatientName("");
+    setNewPatientPhone("");
+    setNewPatientError(null);
+  }
+
   function toggleWeekday(dow) {
     setWeekdays((prev) =>
       prev.includes(dow) ? prev.filter((d) => d !== dow) : [...prev, dow]
@@ -212,10 +261,12 @@ export default function EventForm({
   // -----------------------------
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
-      <fieldset disabled={!canEdit} className="space-y-4 border-0 p-0 m-0">
-      {!canEdit && (
+      <fieldset disabled={!canModify} className="space-y-4 border-0 p-0 m-0">
+      {!canModify && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-          Você tem apenas permissão de visualização para esta agenda.
+          {editing
+            ? "Você tem apenas permissão de visualização para esta agenda."
+            : "Você não tem permissão para criar novos compromissos."}
         </div>
       )}
       {/* AVISO DE CONFLITO DE HORÁRIO */}
@@ -334,7 +385,13 @@ export default function EventForm({
         <select
           className={inputBase}
           value={patientId}
-          onChange={(e) => setPatientId(e.target.value)}
+          onChange={(e) => {
+            if (e.target.value === NEW_PATIENT_VALUE) {
+              setShowNewPatient(true);
+              return;
+            }
+            setPatientId(e.target.value);
+          }}
         >
           <option value="">Nenhum</option>
           {patients.map((p) => (
@@ -342,7 +399,51 @@ export default function EventForm({
               {p.name}
             </option>
           ))}
+          <option value={NEW_PATIENT_VALUE}>+ Cadastrar novo paciente</option>
         </select>
+
+        {showNewPatient && (
+          <div className="mt-2 space-y-2 rounded-2xl border border-sky-200 bg-sky-50 p-3 dark:border-sky-500/30 dark:bg-sky-500/10">
+            <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
+              Novo paciente
+            </p>
+            <input
+              type="text"
+              className={inputBase}
+              placeholder="Nome"
+              value={newPatientName}
+              onChange={(e) => setNewPatientName(e.target.value)}
+              autoFocus
+            />
+            <input
+              type="text"
+              className={inputBase}
+              placeholder="Telefone (opcional)"
+              value={newPatientPhone}
+              onChange={(e) => setNewPatientPhone(e.target.value)}
+            />
+            {newPatientError && (
+              <p className="text-xs text-red-500">{newPatientError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleCancelNewPatient}
+                className="flex-1 rounded-2xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewPatient}
+                disabled={savingNewPatient}
+                className="flex-1 rounded-2xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingNewPatient ? "Cadastrando…" : "Cadastrar"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* CAMPOS DE CIRURGIA */}
@@ -479,7 +580,7 @@ export default function EventForm({
           Cancelar
         </button>
 
-        {onDelete && canEdit && (
+        {onDelete && editing && canEdit && (
           <button
             type="button"
             onClick={onDelete}
@@ -489,7 +590,7 @@ export default function EventForm({
           </button>
         )}
 
-        {canEdit && (
+        {canModify && (
           <button
             type="submit"
             disabled={invalidTime || invalidUntil || missingWeekdays || missingUntil}

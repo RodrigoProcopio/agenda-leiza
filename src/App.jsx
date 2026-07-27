@@ -12,6 +12,7 @@ import Agenda from "./pages/Agenda.jsx";
 import Finance from "./pages/Finance.jsx";
 import Login from "./pages/Login.jsx";
 import Settings from "./pages/Settings.jsx";
+import Admin from "./pages/Admin.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
 
 import { hasConflict } from "./lib/conflicts.js";
@@ -33,6 +34,7 @@ import * as recurrenceApi from "./lib/recurrenceExceptionsApi.js";
 import { getFinanceFilters } from "./lib/financeFiltersStore.js";
 import { resolvePracticeContext } from "./lib/practiceApi.js";
 import { fetchPatients } from "./lib/patientsApi.js";
+import { fetchOwnProfile } from "./lib/profileApi.js";
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 const UNDO_DELETE_MS = 5000;
@@ -75,8 +77,10 @@ function App() {
   // usuário logado tem (dono sempre tem tudo; membro convidado tem o que
   // foi configurado em practice_members).
   const [practiceCtx, setPracticeCtx] = useState(null);
+  const [profile, setProfile] = useState(null);
   const ownerId = practiceCtx?.ownerId ?? null;
   const canEdit = practiceCtx ? !!practiceCtx.canEdit : true;
+  const canCreate = practiceCtx ? practiceCtx.canCreate !== false : true;
   const canViewFinance = practiceCtx ? !!practiceCtx.canViewFinance : true;
   const isOwner = practiceCtx ? !!practiceCtx.isOwner : true;
 
@@ -201,6 +205,40 @@ function App() {
       cancelled = true;
     };
   }, [user]);
+
+  // -----------------------------
+  //   PERFIL DO USUÁRIO LOGADO (nome, título, foto)
+  // -----------------------------
+  useEffect(() => {
+    if (!user) {
+      setProfile(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const p = await fetchOwnProfile();
+        if (!cancelled) setProfile(p);
+      } catch (err) {
+        console.error("Erro ao carregar perfil:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  async function refreshProfile() {
+    try {
+      const p = await fetchOwnProfile();
+      setProfile(p);
+    } catch (err) {
+      console.error("Erro ao atualizar perfil:", err);
+    }
+  }
 
   // -----------------------------
   //   CARREGAR EVENTOS + PACIENTES DO SUPABASE
@@ -372,7 +410,7 @@ function App() {
   //   MODAL NOVO / EDIÇÃO
   // -----------------------------
   function openNew(initialData = null) {
-    if (!canEdit) return;
+    if (!canCreate) return;
     setEditing(null);
     setCandidate(initialData);
     setRecurrenceError(null);
@@ -1151,6 +1189,8 @@ function App() {
       ? { title: "Agenda", showDate: true }
       : tab === "finance"
       ? { title: "Financeiro", showDate: true }
+      : tab === "admin"
+      ? { title: "Administração", showDate: false }
       : { title: "Configurações", showDate: false };
 
   // -----------------------------
@@ -1219,6 +1259,8 @@ function App() {
         {...headerProps}
         theme={theme}
         onLogout={handleLogout}
+        profile={profile}
+        email={user?.email}
       />
 
       {tab === "today" && (
@@ -1260,10 +1302,15 @@ function App() {
           canViewFinance={canViewFinance}
           patients={patients}
           refreshPatients={refreshPatients}
+          profile={profile}
+          refreshProfile={refreshProfile}
+          onOpenAdmin={() => setTab("admin")}
         />
       )}
 
-      {canEdit && <Fab onClick={openNew} />}
+      {tab === "admin" && <Admin onBack={() => setTab("settings")} />}
+
+      {canCreate && <Fab onClick={openNew} />}
       <BottomNav tab={tab} setTab={setTab} showFinance={canViewFinance} />
 
       {/* MODAL PRINCIPAL (CRIAR / EDITAR COMPROMISSO) */}
@@ -1291,8 +1338,11 @@ function App() {
           onDelete={editing ? () => requestDelete(editing) : undefined}
           conflictWith={liveConflict}
           patients={patients}
+          refreshPatients={refreshPatients}
+          ownerId={ownerId}
           canViewFinance={canViewFinance}
           canEdit={canEdit}
+          canCreate={canCreate}
           onChangeCandidate={(cand) => {
             setCandidate(cand);
 

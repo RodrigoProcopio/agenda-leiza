@@ -12,6 +12,8 @@ import {
   updatePatient,
   deletePatient,
 } from "../lib/patientsApi.js";
+import { saveOwnProfile, uploadOwnAvatar } from "../lib/profileApi.js";
+import { checkIsPlatformAdmin } from "../lib/adminApi.js";
 import { useToast } from "../components/Toast.jsx";
 
 export default function Settings({
@@ -25,6 +27,9 @@ export default function Settings({
   canViewFinance = true,
   patients = [],
   refreshPatients,
+  profile,
+  refreshProfile,
+  onOpenAdmin,
 }) {
   const toast = useToast();
   const [backupLoading, setBackupLoading] = useState(false);
@@ -150,6 +155,18 @@ export default function Settings({
       </h2>
 
       <div className="space-y-4">
+        {/* Perfil do usuário */}
+        <ProfileSection
+          profile={profile}
+          refreshProfile={refreshProfile}
+          card={card}
+          sectionTitle={sectionTitle}
+          badgeNew={badgeNew}
+          inputBase={inputBase}
+          primaryBtn={primaryBtn}
+          miniLabel={miniLabel}
+        />
+
         {/* Aparência e tema */}
         <div className={card}>
           <div className="mb-1 flex items-center">
@@ -284,6 +301,15 @@ export default function Settings({
           />
         )}
 
+        {/* Painel administrativo da plataforma (apenas admin) */}
+        <AdminEntrySection
+          onOpenAdmin={onOpenAdmin}
+          card={card}
+          sectionTitle={sectionTitle}
+          badgeNew={badgeNew}
+          primaryBtn={primaryBtn}
+        />
+
         {/* Backup e segurança */}
         <div className={card}>
           <div className="mb-1 flex items-center">
@@ -356,6 +382,208 @@ export default function Settings({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+//   PERFIL DO USUÁRIO
+// -----------------------------------------------------------------------
+const TITLE_OPTIONS = ["Dr.", "Dra.", "Sr.", "Sra.", "Prof.", "Profa."];
+const CUSTOM_TITLE_VALUE = "__custom__";
+
+function ProfileSection({
+  profile,
+  refreshProfile,
+  card,
+  sectionTitle,
+  badgeNew,
+  inputBase,
+  primaryBtn,
+  miniLabel,
+}) {
+  const toast = useToast();
+  const [displayName, setDisplayName] = useState("");
+  const [titleSelect, setTitleSelect] = useState("");
+  const [customTitle, setCustomTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (!profile) return;
+    setDisplayName(profile.displayName || "");
+    const t = profile.title || "";
+    if (t && !TITLE_OPTIONS.includes(t)) {
+      setTitleSelect(CUSTOM_TITLE_VALUE);
+      setCustomTitle(t);
+    } else {
+      setTitleSelect(t);
+      setCustomTitle("");
+    }
+  }, [profile?.id, profile?.title, profile?.displayName]);
+
+  const effectiveTitle =
+    titleSelect === CUSTOM_TITLE_VALUE ? customTitle.trim() : titleSelect;
+
+  async function handleSave(e) {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      await saveOwnProfile({ displayName: displayName.trim(), title: effectiveTitle });
+      await refreshProfile?.();
+      toast.show("Perfil atualizado.", { type: "success" });
+    } catch (err) {
+      console.error("Erro ao salvar perfil:", err);
+      toast.show(err?.message || "Erro ao salvar perfil.", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAvatarChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    try {
+      setUploading(true);
+      await uploadOwnAvatar(file);
+      await refreshProfile?.();
+      toast.show("Foto atualizada.", { type: "success" });
+    } catch (err) {
+      console.error("Erro ao enviar foto:", err);
+      toast.show(err?.message || "Erro ao enviar foto.", { type: "error" });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className={card}>
+      <div className="mb-1 flex items-center">
+        <span className={sectionTitle}>Perfil e conta</span>
+        <span className={badgeNew}>Novo</span>
+      </div>
+
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+        Essas informações aparecem no topo do sistema.
+      </p>
+
+      <div className="mb-4 flex items-center gap-3">
+        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800">
+          {profile?.avatarUrl ? (
+            <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-lg text-slate-400">
+              📷
+            </div>
+          )}
+        </div>
+        <div>
+          <input
+            type="file"
+            accept="image/*"
+            id="avatar-file-input"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
+          <button
+            type="button"
+            onClick={() => document.getElementById("avatar-file-input")?.click()}
+            disabled={uploading}
+            className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            {uploading ? "Enviando..." : "Alterar foto"}
+          </button>
+        </div>
+      </div>
+
+      <form onSubmit={handleSave} className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <span className={miniLabel}>Como deseja ser chamado(a)</span>
+          <select
+            className={inputBase}
+            value={titleSelect}
+            onChange={(e) => setTitleSelect(e.target.value)}
+          >
+            <option value="">Nenhum</option>
+            {TITLE_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+            <option value={CUSTOM_TITLE_VALUE}>Outro...</option>
+          </select>
+          {titleSelect === CUSTOM_TITLE_VALUE && (
+            <input
+              className={`${inputBase} mt-2`}
+              value={customTitle}
+              onChange={(e) => setCustomTitle(e.target.value)}
+              placeholder="Ex: Enfermeiro(a)"
+            />
+          )}
+        </div>
+
+        <div>
+          <span className={miniLabel}>Nome</span>
+          <input
+            className={inputBase}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Seu nome"
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <span className={miniLabel}>E-mail (login)</span>
+          <input className={inputBase} value={profile?.email || ""} disabled readOnly />
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            Para trocar o e-mail de login, entre em contato com o administrador do sistema.
+          </p>
+        </div>
+
+        <div className="sm:col-span-2">
+          <button type="submit" disabled={saving} className={primaryBtn}>
+            {saving ? "Salvando..." : "Salvar perfil"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+//   ENTRADA PARA O PAINEL ADMINISTRATIVO (apenas admin da plataforma)
+// -----------------------------------------------------------------------
+function AdminEntrySection({ onOpenAdmin, card, sectionTitle, badgeNew, primaryBtn }) {
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    checkIsPlatformAdmin().then((result) => {
+      if (!cancelled) setIsAdmin(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!isAdmin) return null;
+
+  return (
+    <div className={card}>
+      <div className="mb-1 flex items-center">
+        <span className={sectionTitle}>Administração da plataforma</span>
+        <span className={badgeNew}>Novo</span>
+      </div>
+
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+        Criar contas de médicos, enviar convites e acompanhar o uso da plataforma.
+      </p>
+
+      <button type="button" onClick={onOpenAdmin} className={primaryBtn}>
+        Abrir painel administrativo
+      </button>
     </div>
   );
 }
@@ -544,6 +772,7 @@ function MembersSection({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("secretary");
   const [canEditNew, setCanEditNew] = useState(true);
+  const [canCreateNew, setCanCreateNew] = useState(true);
   const [canViewFinanceNew, setCanViewFinanceNew] = useState(false);
   const [inviting, setInviting] = useState(false);
 
@@ -575,6 +804,7 @@ function MembersSection({
         email: email.trim(),
         role,
         canEdit: canEditNew,
+        canCreate: canCreateNew,
         canViewFinance: canViewFinanceNew,
       });
       toast.show("Convite enviado com sucesso.", { type: "success" });
@@ -591,6 +821,7 @@ function MembersSection({
   async function togglePerm(member, field) {
     const next = {
       canEdit: field === "canEdit" ? !member.can_edit : !!member.can_edit,
+      canCreate: field === "canCreate" ? !member.can_create : member.can_create !== false,
       canViewFinance:
         field === "canViewFinance" ? !member.can_view_finance : !!member.can_view_finance,
     };
@@ -653,7 +884,15 @@ function MembersSection({
           </select>
         </div>
 
-        <div className="flex items-end gap-4">
+        <div className="flex flex-wrap items-end gap-4 sm:col-span-2">
+          <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={canCreateNew}
+              onChange={(e) => setCanCreateNew(e.target.checked)}
+            />
+            Pode criar compromissos
+          </label>
           <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
             <input
               type="checkbox"
@@ -706,7 +945,15 @@ function MembersSection({
               </button>
             </div>
 
-            <div className="mt-2 flex gap-4">
+            <div className="mt-2 flex flex-wrap gap-4">
+              <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={m.can_create !== false}
+                  onChange={() => togglePerm(m, "canCreate")}
+                />
+                Pode criar compromissos
+              </label>
               <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                 <input
                   type="checkbox"

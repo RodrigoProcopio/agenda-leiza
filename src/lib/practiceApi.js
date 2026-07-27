@@ -18,7 +18,7 @@ export async function resolvePracticeContext() {
 
   const { data, error: memberError } = await supabase
     .from("practice_members")
-    .select("owner_user_id, role, can_edit, can_view_finance")
+    .select("owner_user_id, role, can_edit, can_create, can_view_finance")
     .eq("member_user_id", user.id)
     .limit(1)
     .maybeSingle();
@@ -34,6 +34,7 @@ export async function resolvePracticeContext() {
       isOwner: false,
       role: data.role,
       canEdit: !!data.can_edit,
+      canCreate: data.can_create !== false,
       canViewFinance: !!data.can_view_finance,
     };
   }
@@ -44,6 +45,7 @@ export async function resolvePracticeContext() {
     isOwner: true,
     role: "owner",
     canEdit: true,
+    canCreate: true,
     canViewFinance: true,
   };
 }
@@ -51,7 +53,9 @@ export async function resolvePracticeContext() {
 export async function fetchMembers(ownerId) {
   const { data, error } = await supabase
     .from("practice_members")
-    .select("id, member_user_id, role, can_edit, can_view_finance, invited_email, created_at")
+    .select(
+      "id, member_user_id, role, can_edit, can_create, can_view_finance, invited_email, created_at"
+    )
     .eq("owner_user_id", ownerId)
     .order("created_at", { ascending: true });
 
@@ -59,12 +63,13 @@ export async function fetchMembers(ownerId) {
   return data || [];
 }
 
-export async function inviteMember({ email, role, canEdit, canViewFinance }) {
+export async function inviteMember({ email, role, canEdit, canCreate, canViewFinance }) {
   const { data, error } = await supabase.functions.invoke("invite-member", {
     body: {
       email,
       role,
       can_edit: canEdit,
+      can_create: canCreate,
       can_view_finance: canViewFinance,
     },
   });
@@ -87,10 +92,14 @@ export async function inviteMember({ email, role, canEdit, canViewFinance }) {
   return data;
 }
 
-export async function updateMemberPermissions(id, { canEdit, canViewFinance }) {
+export async function updateMemberPermissions(id, { canEdit, canCreate, canViewFinance }) {
   const { error } = await supabase
     .from("practice_members")
-    .update({ can_edit: canEdit, can_view_finance: canViewFinance })
+    .update({
+      can_edit: canEdit,
+      can_create: canCreate,
+      can_view_finance: canViewFinance,
+    })
     .eq("id", id);
 
   if (error) throw error;
