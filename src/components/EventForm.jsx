@@ -106,7 +106,12 @@ export default function EventForm({
   //   (só roda quando muda o initial.id)
   // -----------------------------
   useEffect(() => {
-    if (!initial) return;
+    // Só carrega/"trava" os campos quando for realmente uma edição de um
+    // evento existente (initial.id definido). Para um evento novo, o App
+    // pode passar um objeto "candidate" (sem id) vindo do próprio
+    // onChangeCandidate deste formulário — isso não deve disparar o reset
+    // dos campos nem travar o auto-preenchimento do "Fim".
+    if (!initial || !initial.id) return;
 
     setType(initial.type || "pessoal");
     setDate(initial.date || todayYmd());
@@ -127,7 +132,7 @@ export default function EventForm({
     setRepeatUntil(initial.repeatUntil || "");
     setWeekdays(initial.weekdays || []);
     setPatientId(initial.patientId || "");
-  }, [initial && initial.id]);
+  }, [initial?.id]);
 
   const resolvedType = type || "pessoal";
 
@@ -353,10 +358,6 @@ export default function EventForm({
             value={start}
             onChange={(e) => {
               const newStart = e.target.value;
-              console.log(
-                "[DEBUG] start onChange " +
-                  JSON.stringify({ newStart, editing, endTouched })
-              );
               setStart(newStart);
               // Preenche o "Fim" automaticamente com +1h enquanto o usuário
               // não tiver alterado esse campo manualmente (só em novos
@@ -364,7 +365,6 @@ export default function EventForm({
               // existentes).
               if (!editing && !endTouched && newStart) {
                 const computed = minutesToHm(hmToMinutes(newStart) + 60);
-                console.log("[DEBUG] setting end to", computed);
                 setEnd(computed);
               }
             }}
