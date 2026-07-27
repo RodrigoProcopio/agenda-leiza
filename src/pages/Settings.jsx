@@ -14,6 +14,7 @@ import {
 } from "../lib/patientsApi.js";
 import { saveOwnProfile, uploadOwnAvatar } from "../lib/profileApi.js";
 import { useToast } from "../components/Toast.jsx";
+import ConfirmModal from "../components/ConfirmModal.jsx";
 
 export default function Settings({
   theme,
@@ -728,6 +729,8 @@ function MembersSection({
   const [canCreateNew, setCanCreateNew] = useState(true);
   const [canViewFinanceNew, setCanViewFinanceNew] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState(null);
+  const [removing, setRemoving] = useState(false);
 
   async function load() {
     if (!ownerId) return;
@@ -788,19 +791,23 @@ function MembersSection({
     }
   }
 
-  async function handleRemove(member) {
-    const ok = window.confirm(
-      `Remover o acesso de "${member.invited_email || member.member_user_id}"?`
-    );
-    if (!ok) return;
+  function handleRemove(member) {
+    setMemberToRemove(member);
+  }
 
+  async function confirmRemove() {
+    if (!memberToRemove) return;
     try {
-      await removeMember(member.id);
+      setRemoving(true);
+      await removeMember(memberToRemove.id);
       toast.show("Acesso removido.", { type: "info" });
+      setMemberToRemove(null);
       await load();
     } catch (err) {
       console.error("Erro ao remover membro:", err);
       toast.show("Erro ao remover membro.", { type: "error" });
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -927,6 +934,21 @@ function MembersSection({
           </div>
         ))}
       </div>
+
+      <ConfirmModal
+        open={!!memberToRemove}
+        title="Remover acesso"
+        description={
+          memberToRemove
+            ? `Remover o acesso de "${
+                memberToRemove.invited_email || memberToRemove.member_user_id
+              }"?`
+            : ""
+        }
+        confirmLabel={removing ? "Removendo..." : "Remover"}
+        onConfirm={confirmRemove}
+        onCancel={() => setMemberToRemove(null)}
+      />
     </div>
   );
 }
