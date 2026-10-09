@@ -14,6 +14,7 @@ import Login from "./pages/Login.jsx";
 import Settings from "./pages/Settings.jsx";
 import AdminHome from "./pages/AdminHome.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
+import Trip from "./pages/Trip.jsx";
 
 import { hasConflict } from "./lib/conflicts.js";
 import { buildWeeklyRecurringEvents } from "./lib/recurrence.js";
@@ -36,6 +37,7 @@ import { resolvePracticeContext } from "./lib/practiceApi.js";
 import { fetchPatients } from "./lib/patientsApi.js";
 import { fetchOwnProfile } from "./lib/profileApi.js";
 import { checkIsPlatformAdmin } from "./lib/adminApi.js";
+import { fetchMyTrips } from "./lib/tripApi.js";
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 const UNDO_DELETE_MS = 5000;
@@ -256,6 +258,34 @@ function App() {
   // -----------------------------
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [adminCheckDone, setAdminCheckDone] = useState(false);
+
+  // -----------------------------
+  //   ROTEIRO DE VIAGEM (aba "Viagem" — só aparece para membros de uma viagem)
+  // -----------------------------
+  const [trip, setTrip] = useState(null);
+
+  useEffect(() => {
+    if (!user) {
+      setTrip(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const trips = await fetchMyTrips();
+        if (!cancelled) setTrip(trips[0] || null);
+      } catch (err) {
+        console.error("Erro ao carregar roteiro de viagem:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (tab === "trip" && !trip) setTab("today");
+  }, [tab, trip]);
 
   useEffect(() => {
     if (!user) {
@@ -1231,6 +1261,8 @@ function App() {
       ? { title: "Agenda", showDate: true }
       : tab === "finance"
       ? { title: "Financeiro", showDate: true }
+      : tab === "trip"
+      ? { title: "Viagem", showDate: true }
       : { title: "Configurações", showDate: false };
 
   // -----------------------------
@@ -1390,6 +1422,8 @@ function App() {
         />
       )}
 
+      {tab === "trip" && trip && <Trip trip={trip} toast={toast} />}
+
       {tab === "settings" && (
         <Settings
           theme={theme}
@@ -1408,8 +1442,13 @@ function App() {
         />
       )}
 
-      {canCreate && <Fab onClick={openNew} />}
-      <BottomNav tab={tab} setTab={setTab} showFinance={canViewFinance} />
+      {canCreate && tab !== "trip" && <Fab onClick={openNew} />}
+      <BottomNav
+        tab={tab}
+        setTab={setTab}
+        showFinance={canViewFinance}
+        showTrip={!!trip}
+      />
 
       {/* MODAL PRINCIPAL (CRIAR / EDITAR COMPROMISSO) */}
       <Modal

@@ -1,8 +1,10 @@
 import React from "react";
 
-export default function BottomNav({ tab, setTab, showFinance = true }) {
+export default function BottomNav({ tab, setTab, showFinance = true, showTrip = false }) {
+  const many = showTrip && showFinance;
   const item =
-    "flex flex-col items-center justify-center flex-1 rounded-xl px-2 py-2 text-sm transition";
+    "flex flex-col items-center justify-center flex-1 min-w-0 rounded-xl py-2 transition " +
+    (many ? "px-1 text-[12px] sm:px-2 sm:text-sm" : "px-2 text-sm");
 
   const active =
     "text-blue-600 dark:text-sky-300 font-semibold bg-white dark:bg-slate-900 shadow";
@@ -34,6 +36,15 @@ export default function BottomNav({ tab, setTab, showFinance = true }) {
             onClick={() => setTab("finance")}
           >
             Financeiro
+          </button>
+        )}
+
+        {showTrip && (
+          <button
+            className={item + " " + (tab === "trip" ? active : inactive)}
+            onClick={() => setTab("trip")}
+          >
+            Viagem
           </button>
         )}
 
