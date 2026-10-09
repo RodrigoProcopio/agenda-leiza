@@ -8,10 +8,9 @@ import {
 const card =
   "rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40";
 
-export const checklistKey = (id) => "c:" + id;
 export const customKey = (id) => "cc:" + id;
 
-function CheckRow({ done, text, note, saving, onToggle, onDelete }) {
+function CheckRow({ done, text, note, qty, saving, onToggle, onDelete }) {
   return (
     <li className="flex items-start gap-3 py-2">
       <button
@@ -37,6 +36,11 @@ function CheckRow({ done, text, note, saving, onToggle, onDelete }) {
             (done ? "text-slate-400 line-through dark:text-slate-500" : "")
           }
         >
+          {qty && (
+            <span className="mr-1.5 inline-block rounded-md bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-800 no-underline dark:bg-sky-500/15 dark:text-sky-200">
+              {qty}
+            </span>
+          )}
           {text}
         </div>
         {note && (
@@ -126,13 +130,23 @@ function AddItem({ onAdd }) {
   );
 }
 
-export default function TripChecklist({ trip, status, saving, onToggle, toast }) {
-  const checklist = trip?.data?.checklist;
+export default function TripChecklist({
+  trip,
+  list,
+  itemPrefix = "c:",
+  status,
+  saving,
+  onToggle,
+  toast,
+}) {
+  const checklist = list;
+  const checklistKey = (id) => itemPrefix + id;
   const categories = checklist?.categories || [];
 
   const [custom, setCustom] = useState([]);
   const [hideDone, setHideDone] = useState(false);
   const [openCats, setOpenCats] = useState(() => new Set(categories.map((c) => c.id)));
+  const [tipsOpen, setTipsOpen] = useState(false);
 
   useEffect(() => {
     if (!trip?.id) return;
@@ -205,7 +219,7 @@ export default function TripChecklist({ trip, status, saving, onToggle, toast })
   }
 
   if (!checklist) {
-    return <div className={card + " mt-3 text-sm"}>Checklist ainda não disponível.</div>;
+    return <div className={card + " mt-3 text-sm"}>Lista ainda não disponível.</div>;
   }
 
   return (
@@ -214,6 +228,26 @@ export default function TripChecklist({ trip, status, saving, onToggle, toast })
         <h2 className="text-base font-bold text-slate-900 dark:text-slate-50">{checklist.title}</h2>
         {checklist.intro && (
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{checklist.intro}</p>
+        )}
+        {checklist.tips?.length > 0 && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 dark:border-amber-500/20 dark:bg-amber-500/5">
+            <button
+              type="button"
+              onClick={() => setTipsOpen((v) => !v)}
+              aria-expanded={tipsOpen}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-slate-800 dark:text-slate-100"
+            >
+              <span>{checklist.tipsTitle || "Dicas"}</span>
+              <span className="text-slate-400">{tipsOpen ? "▴" : "▾"}</span>
+            </button>
+            {tipsOpen && (
+              <ul className="list-disc space-y-1 px-3 pb-3 pl-7 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                {checklist.tips.map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         <div className="mt-3 flex items-baseline justify-between text-xs text-slate-600 dark:text-slate-300">
           <span>
@@ -311,6 +345,7 @@ export default function TripChecklist({ trip, status, saving, onToggle, toast })
                         done={done}
                         text={i.text}
                         note={i.note}
+                        qty={i.qty}
                         saving={!!saving[k]}
                         onToggle={() => onToggle(k, !done)}
                       />

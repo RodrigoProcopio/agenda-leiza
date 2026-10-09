@@ -328,10 +328,11 @@ export default function Trip({ trip, toast }) {
       </div>
 
       {/* Alternância Dia a dia / Informações gerais */}
-      <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-sky-100/80 p-1 dark:bg-slate-900/70">
+      <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-sky-100/80 p-1 dark:bg-slate-900/70">
         {[
           ["dia", "Dia a dia"],
           ["checklist", "Checklist"],
+          ["compras", "Compras"],
           ["geral", "Voos e contatos"],
         ].map(([v, label]) => (
           <button
@@ -353,6 +354,20 @@ export default function Trip({ trip, toast }) {
       {view === "checklist" && (
         <TripChecklist
           trip={trip}
+          list={data.checklist}
+          itemPrefix="c:"
+          status={status}
+          saving={saving}
+          onToggle={toggle}
+          toast={toast}
+        />
+      )}
+
+      {view === "compras" && (
+        <TripChecklist
+          trip={trip}
+          list={data.shopping}
+          itemPrefix="s:"
           status={status}
           saving={saving}
           onToggle={toggle}
