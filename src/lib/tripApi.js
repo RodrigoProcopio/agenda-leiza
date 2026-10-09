@@ -50,3 +50,33 @@ export async function setTripItemDone(tripId, itemKey, done) {
 
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------
+// Itens extras do checklist, adicionados pelo casal no app
+// ---------------------------------------------------------------
+export async function fetchChecklistCustom(tripId) {
+  const { data, error } = await supabase
+    .from("trip_checklist_custom")
+    .select("id, category_id, text, created_at")
+    .eq("trip_id", tripId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addChecklistCustom(tripId, categoryId, text) {
+  const { data, error } = await supabase
+    .from("trip_checklist_custom")
+    .insert({ trip_id: tripId, category_id: categoryId, text })
+    .select("id, category_id, text, created_at")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteChecklistCustom(id) {
+  const { error } = await supabase.from("trip_checklist_custom").delete().eq("id", id);
+  if (error) throw error;
+}

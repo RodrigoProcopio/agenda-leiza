@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchTripStatus, setTripItemDone } from "../lib/tripApi.js";
 import { localTodayKey } from "../lib/time.js";
+import TripChecklist from "./TripChecklist.jsx";
 
 const REFRESH_MS = 60 * 1000;
 
@@ -244,7 +245,7 @@ export default function Trip({ trip, toast }) {
     return found ? found.n : days[0]?.n ?? 1;
   }, [days]);
   const [dayN, setDayN] = useState(initialDay);
-  // "geral" mostra voos, plano e contatos
+  // "checklist" = o que levar/providenciar; "geral" = voos, plano e contatos
   const [view, setView] = useState("dia");
 
   const load = useCallback(async () => {
@@ -327,9 +328,10 @@ export default function Trip({ trip, toast }) {
       </div>
 
       {/* Alternância Dia a dia / Informações gerais */}
-      <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-sky-100/80 p-1 dark:bg-slate-900/70">
+      <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-sky-100/80 p-1 dark:bg-slate-900/70">
         {[
           ["dia", "Dia a dia"],
+          ["checklist", "Checklist"],
           ["geral", "Voos e contatos"],
         ].map(([v, label]) => (
           <button
@@ -337,7 +339,7 @@ export default function Trip({ trip, toast }) {
             type="button"
             onClick={() => setView(v)}
             className={
-              "rounded-lg px-3 py-1.5 text-sm transition " +
+              "rounded-lg px-1 py-1.5 text-[13px] leading-tight transition sm:px-3 sm:text-sm " +
               (view === v
                 ? "bg-white font-semibold text-blue-700 shadow dark:bg-slate-800 dark:text-sky-300"
                 : "text-slate-600 dark:text-slate-300")
@@ -347,6 +349,16 @@ export default function Trip({ trip, toast }) {
           </button>
         ))}
       </div>
+
+      {view === "checklist" && (
+        <TripChecklist
+          trip={trip}
+          status={status}
+          saving={saving}
+          onToggle={toggle}
+          toast={toast}
+        />
+      )}
 
       {view === "geral" && (
         <div className="mt-3 space-y-3">
